@@ -95,7 +95,7 @@ public readonly record struct LogEnvelope
         sb.AppendLine($"║ Timestamp : {Timestamp:yyyy-MM-dd HH:mm:ss.fff} UTC");
         sb.AppendLine($"║ Severity  : {Severity}");
         sb.AppendLine($"║ Message   : {Message}");
-
+        sb.AppendLine($"╟═══════════════════════════════════════════════════════════");
         if (!string.IsNullOrEmpty(SourceFile))
             sb.AppendLine($"║ Source    : {SourceFile}:{SourceLine}");
 
@@ -104,7 +104,7 @@ public readonly record struct LogEnvelope
 
         if (Exception is null)
         {
-            sb.AppendLine("╚════════════════════════════════════════════════════════════");
+            sb.AppendLine("╚═══════════════════════════════════════════════════════════");
             return sb.ToString();
         }
 
@@ -144,7 +144,7 @@ public readonly record struct LogEnvelope
             }
         }
 
-        sb.AppendLine("╚════════════════════════════════════════════════════════════");
+        sb.AppendLine("╚═══════════════════════════════════════════════════════════");
 
         return sb.ToString();
     }
