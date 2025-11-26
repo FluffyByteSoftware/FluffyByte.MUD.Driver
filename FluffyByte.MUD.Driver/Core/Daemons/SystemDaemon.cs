@@ -50,8 +50,8 @@ public static class SystemDaemon
     /// <returns></returns>
     public static async ValueTask RequestStart()
     {
-        if(State != DaemonStatus.Stopped 
-            || State != DaemonStatus.Error)
+        if(State == DaemonStatus.Starting 
+            || State == DaemonStatus.Running)
         { 
             Log.Error($"Cannot start {Name} because it is already running or in the process of starting. Current State: {State}");
             return;
@@ -118,6 +118,12 @@ public static class SystemDaemon
         }
     }
 
+    /// <summary>
+    /// Retrieves a formatted status summary of the current file daemon, including its name, state, and uptime.
+    /// </summary>
+    /// <remarks>The returned string provides a concise overview of the file daemon's operational status.
+    /// Future enhancements may include additional daemons in the summary output.</remarks>
+    /// <returns>A string containing the name, state, and uptime of the file daemon, separated by delimiters.</returns>
     public static async Task<string> RequestStatus()
     {
         StringBuilder sb = new();

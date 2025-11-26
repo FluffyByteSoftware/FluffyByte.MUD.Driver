@@ -6,10 +6,7 @@
  *-------------------------------------------------------------
  */
 
-using System.Reflection.Metadata.Ecma335;
 using System.Text;
-using System.Text.Json;
-using System.Text.Json.Serialization;
 
 namespace FluffyByte.MUD.Driver.Core.Types.Debug;
 
@@ -51,7 +48,7 @@ public readonly record struct LogEnvelope
     /// Gets the identifier of the user or process that initiated the operation.
     /// </summary>
     public string Caller { get; init; }
-    
+
     // Fixed-width box drawing infrastructure
 
     private const char TL = '╔';
@@ -71,6 +68,16 @@ public readonly record struct LogEnvelope
     #endregion
 
     #region Constructor
+    /// <summary>
+    /// Initializes a new instance of the LogEnvelope class with the specified severity, message, and optional exception
+    /// and source information.
+    /// </summary>
+    /// <param name="severity">The severity level of the log entry, indicating its importance or type.</param>
+    /// <param name="message">The message to be logged. This should describe the event or condition being recorded.</param>
+    /// <param name="exception">Optional exception information associated with the log entry. Specify null if no exception is related.</param>
+    /// <param name="sourceFile">The source file path where the log entry originated. If not specified, defaults to an empty string.</param>
+    /// <param name="sourceLine">The line number in the source file where the log entry was generated. If not specified, defaults to 0.</param>
+    /// <param name="caller">The name of the method or member that generated the log entry. If not specified, defaults to an empty string.</param>
     public LogEnvelope(
         DebugSeverity severity,
         string message,
@@ -90,56 +97,124 @@ public readonly record struct LogEnvelope
     }
     #endregion
 
+    #region Box Drawing Helpers
 
     private static string BoxLine(char left, char right)
-        => $"{left}{new string('═', BOX_WIDTH - 2)}{right}";
+        => $"{left}{new string(HL, BOX_WIDTH - 2)}{right}";
 
     private static string BoxContent(string content)
-    {
-        if (content.Length > INNER_WIDTH)
-            content = content[..INNER_WIDTH];
+        => $"{VL} {content,-INNER_WIDTH} {VL}";
 
-        return $"{VL} {content,-INNER_WIDTH} {VL}";
-    }
-
-    private static IEnumerable<string> WrapField(string label, string value)
+    /// <summary>
+    /// Wraps a labeled field value across multiple lines, maintaining proper indentation.
+    /// </summary>
+    /// <param name="label">The field label (will be padded to labelWidth).</param>
+    /// <param name="value">The value to wrap.</param>
+    /// <param name="labelWidth">Width to pad the label to (default 9 for standard fields).</param>
+    /// <param name="baseIndent">Additional indentation prefix for nested content.</param>
+    private static IEnumerable<string> WrapField(
+        string label,
+        string value,
+        int labelWidth = 9,
+        string baseIndent = "")
     {
-        string prefix = $"{label,-9}: ";
+        string prefix = $"{baseIndent}{label.PadRight(labelWidth)}: ";
+        string continuation = new(' ', prefix.Length);
         int available = INNER_WIDTH - prefix.Length;
 
         if (available < 10)
             available = 10;
 
-        for (int i = 0; i < value.Length; i += available)
+        // Handle empty or whitespace values
+        if (string.IsNullOrEmpty(value))
         {
-            string chunk = value.Substring(i, Math.Min(available, value.Length - i));
+            yield return BoxContent(prefix);
+            yield break;
+        }
 
-            if (i == 0)
-                yield return BoxContent(prefix + chunk);
-            else
-                yield return BoxContent(new string(' ', prefix.Length) + chunk);
+        // Split by existing newlines first, then wrap each segment
+        var segments = value.Split('\n');
+
+        bool firstSegment = true;
+        foreach (var segment in segments)
+        {
+            string trimmed = segment.TrimEnd('\r');
+
+            if (trimmed.Length == 0)
+            {
+                yield return BoxContent(firstSegment ? prefix : continuation);
+                firstSegment = false;
+                continue;
+            }
+
+            for (int i = 0; i < trimmed.Length; i += available)
+            {
+                string chunk = trimmed.Substring(i, Math.Min(available, trimmed.Length - i));
+
+                if (firstSegment && i == 0)
+                    yield return BoxContent(prefix + chunk);
+                else
+                    yield return BoxContent(continuation + chunk);
+            }
+
+            firstSegment = false;
         }
     }
+
+    /// <summary>
+    /// Wraps raw text (like stack traces) with a fixed indentation prefix.
+    /// </summary>
+    private static IEnumerable<string> WrapText(string text, string indent = "")
+    {
+        int available = INNER_WIDTH - indent.Length;
+
+        if (available < 10)
+            available = 10;
+
+        var lines = text.Split('\n');
+
+        foreach (var line in lines)
+        {
+            string trimmed = line.TrimEnd('\r');
+
+            if (trimmed.Length == 0)
+            {
+                yield return BoxContent(indent);
+                continue;
+            }
+
+            for (int i = 0; i < trimmed.Length; i += available)
+            {
+                string chunk = trimmed.Substring(i, Math.Min(available, trimmed.Length - i));
+                yield return BoxContent(indent + chunk);
+            }
+        }
+    }
+
+    private static void AppendField(StringBuilder sb, string label, string value, int labelWidth = 9, string indent = "")
+    {
+        foreach (var line in WrapField(label, value, labelWidth, indent))
+            sb.AppendLine(line);
+    }
+
+    #endregion
 
     public override string ToString()
     {
         var sb = new StringBuilder();
 
         sb.AppendLine(BoxLine(TL, TR));
-        sb.AppendLine(BoxContent($"Timestamp : {Timestamp:yyyy-MM-dd HH:mm:ss.fff} UTC"));
-        sb.AppendLine(BoxContent($"Severity  : {Severity}"));
-        sb.AppendLine(BoxContent($"Message   : {Message}"));
+        AppendField(sb, "Timestamp", $"{Timestamp:yyyy-MM-dd HH:mm:ss.fff} UTC");
+        AppendField(sb, "Severity", Severity.ToString());
+        AppendField(sb, "Message", Message);
         sb.AppendLine(BoxLine(ML, MR));
 
         if (!string.IsNullOrEmpty(SourceFile))
         {
-            string fullPath = $"{SourceFile}:{SourceLine}";
-
-            foreach (string line in WrapField("Source", fullPath))
-                sb.AppendLine(line);
+            AppendField(sb, "Source", $"{SourceFile}:{SourceLine}");
 
             if (!string.IsNullOrEmpty(Caller))
-                sb.AppendLine(BoxContent($"Caller    : {Caller}"));
+                AppendField(sb, "Caller", Caller);
         }
 
         if (Exception is null)
@@ -158,18 +233,19 @@ public readonly record struct LogEnvelope
         {
             string indent = new(' ', depth * 2);
 
-            sb.AppendLine(BoxContent($"{indent}Type    : {current.Type}"));
-            sb.AppendLine(BoxContent($"{indent}Message : {current.Message}"));
-            sb.AppendLine(BoxContent($"{indent}Stack   :"));
+            sb.AppendLine(BoxContent(""));
+            AppendField(sb, "Type", current.Type, 7, indent);
+            AppendField(sb, "Message", current.Message, 7, indent);
+            sb.AppendLine(BoxContent($"{indent}Stack:"));
 
-            if (current.StackTrace is null)
+            if (string.IsNullOrEmpty(current.StackTrace))
             {
                 sb.AppendLine(BoxContent($"{indent}  <No stack trace available>"));
             }
             else
             {
-                foreach (var line in current.StackTrace.Split('\n'))
-                    sb.AppendLine(BoxContent($"{indent}  {line}"));
+                foreach (var line in WrapText(current.StackTrace, indent + "  "))
+                    sb.AppendLine(line);
             }
 
             current = current.Inner;
@@ -179,7 +255,6 @@ public readonly record struct LogEnvelope
             {
                 sb.AppendLine(BoxContent(""));
                 sb.AppendLine(BoxContent($"{indent}--- Inner Exception ---"));
-                sb.AppendLine(BoxContent(""));
             }
         }
 
@@ -187,8 +262,6 @@ public readonly record struct LogEnvelope
         return sb.ToString();
     }
 }
-
-
 /*
 *------------------------------------------------------------
 * (LogEnvelope.cs)

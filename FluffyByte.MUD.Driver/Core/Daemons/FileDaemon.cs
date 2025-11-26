@@ -163,6 +163,10 @@ public static class FileDaemon
 
     private static Task SystemSlowTick(long _)
     {
+        _cacheFast?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
+        _cacheSlow?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
+        _cacheGame?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
+
         return FlushQueue.CheckFlush();
     }
 
@@ -259,10 +263,9 @@ public static class FileDaemon
                 Log.Error($"One or more caches are null in Write request!");
                 return;
             }
-            
+
             try
             {
-
                 switch (priority)
                 {
                     case FilePriority.SystemFast:
@@ -283,13 +286,13 @@ public static class FileDaemon
             {
                 Log.Warn($"OperationCanceledException during a Write - CHECK TO SEE IF {path} is updated!");
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Log.Error(ex);
                 State = DaemonStatus.Error;
 
                 return;
-            }            
+            }
         }
 
         /// <summary>
@@ -322,37 +325,7 @@ public static class FileDaemon
             if (allDirtyFiles.Count == 0)
                 return "No files waiting to write.";
 
-            return FormatList(allDirtyFiles);
-        }
-
-        /// <summary>
-        /// Helper to format a list with proper grammar (commas and "and")
-        /// </summary>
-        private static string FormatList(List<string> items)
-        {
-            if (items.Count == 0)
-                return string.Empty;
-
-            if (items.Count == 1)
-                return items[0];
-
-            if (items.Count == 2)
-                return $"{items[0]} and {items[1]}";
-
-            StringBuilder sb = new();
-            for (int i = 0; i < items.Count; i++)
-            {
-                if (i == items.Count - 1) // Last item
-                {
-                    sb.Append($"and {items[i]}");
-                }
-                else
-                {
-                    sb.Append($"{items[i]}, ");
-                }
-            }
-
-            return sb.ToString();
+            return GrammarTool.ToCommaList(allDirtyFiles);
         }
     }
     #endregion
@@ -381,6 +354,29 @@ public static class FileDaemon
         internal bool TryGetValue(string path, out FileEntry? entry)
         {
             return entries.TryGetValue(path, out entry);
+        }
+
+        internal void PruneStaleEntries(TimeSpan maxAge)
+        {
+            DateTime cutoff = DateTime.UtcNow - maxAge;
+
+            foreach(var kvp in entries)
+            {
+                string path = kvp.Key;
+                FileEntry entry = kvp.Value;
+
+                // 1. If the file has been accessed recently, skip it.
+                if (entry.LastAccess > cutoff)
+                    continue;
+
+                // 2. If the file is currently waiting to be written to disk.
+                // DO NOT remove it, or the FlushQueue will fail.
+                if (FlushQueue.IsDirty(path))
+                    continue;
+
+                // 3. Safe to remove
+                entries.TryRemove(path, out _);
+            }
         }
 
         /// <summary>
@@ -455,6 +451,15 @@ public static class FileDaemon
             if (GetCache(priority).TryGetValue(path, out FileEntry? entry) && entry != null)
                 Interlocked.Add(ref _queuedBytes, entry.SizeBytes);
         }
+
+        /// <summary>
+        /// Determines whether the specified path has unsaved changes in any tracked data set.
+        /// </summary>
+        /// <param name="path">The path to check for unsaved changes. Cannot be null.</param>
+        /// <returns>true if the specified path is marked as dirty in any data set; otherwise, false.</returns>
+        internal static bool IsDirty(string path)
+            => (_high.ContainsKey(path) || _low.ContainsKey(path) || _game.ContainsKey(path));
+        
 
         /// <summary>
         /// Gets the list of dirty file paths for a specific priority
@@ -575,6 +580,7 @@ public static class FileDaemon
                 if (!cache.TryGetValue(path, out FileEntry? entry) || entry == null)
                     continue;
 
+                long currentVersion = entry.Version;
                 byte[]? data = entry.Content;
 
                 if (data == null || data.Length == 0)
@@ -584,7 +590,12 @@ public static class FileDaemon
                 {
                     await File.WriteAllBytesAsync(path, data, SystemDaemon.GlobalShutdownToken);
                     
-                    queue.TryRemove(path, out _);
+                    if(entry.Version == currentVersion)
+                    {
+                        queue.TryRemove(path, out _);
+                    }
+                    // If version has changed, it means it was updated again while we were writing
+                    // We'll pick it up on the next tick.
                 }
                 catch (Exception ex)
                 {
