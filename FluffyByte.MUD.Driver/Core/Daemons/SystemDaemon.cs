@@ -124,7 +124,7 @@ public static class SystemDaemon
     /// <remarks>The returned string provides a concise overview of the file daemon's operational status.
     /// Future enhancements may include additional daemons in the summary output.</remarks>
     /// <returns>A string containing the name, state, and uptime of the file daemon, separated by delimiters.</returns>
-    public static async Task<string> RequestStatus()
+    public static string RequestStatus()
     {
         StringBuilder sb = new();
 

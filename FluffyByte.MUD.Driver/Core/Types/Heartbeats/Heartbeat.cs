@@ -74,8 +74,9 @@ public sealed class Heartbeat(TimeSpan interval, Func<long, Task> onTickAsync) :
         {
             Log.Debug($"GlobalShutdownToken is not cancelled, but a stop request to this heartbeat has been made.");
         }
-        
+
         _timer.Dispose();
+        _timer = null;
 
         return Task.CompletedTask;
     }
@@ -127,8 +128,15 @@ public sealed class Heartbeat(TimeSpan interval, Func<long, Task> onTickAsync) :
                 Interlocked.Exchange(ref _tickCount, _tickCount + 1);
                 _timeSinceLastTick = sw.Elapsed;
                 sw.Restart();
-
-                await _onTickAsync(_tickCount).ConfigureAwait(false);
+                try
+                {
+                    await _onTickAsync(_tickCount).ConfigureAwait(false);
+                }
+                catch(Exception ex)
+                {
+                    Log.Error($"Exception in heartbeat callback (tick {_tickCount}):", ex);
+                    // Continues running - don't let a bad tick stop it
+                }
             }
         }
         catch (OperationCanceledException)
