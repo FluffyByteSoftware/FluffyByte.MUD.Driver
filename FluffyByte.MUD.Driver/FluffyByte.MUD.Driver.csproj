@@ -9,7 +9,6 @@
 
   <ItemGroup>
     <Folder Include="Core\Trackers\" />
-    <Folder Include="Core\Types\Daemons\FileManager\" />
   </ItemGroup>
 
 </Project>

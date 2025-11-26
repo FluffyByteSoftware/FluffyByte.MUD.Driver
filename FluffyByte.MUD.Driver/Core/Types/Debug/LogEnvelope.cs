@@ -22,6 +22,7 @@ namespace FluffyByte.MUD.Driver.Core.Types.Debug;
 /// logging frameworks or diagnostic tools that require rich log context.</remarks>
 public readonly record struct LogEnvelope
 {
+    #region Variables
     /// <summary>
     /// Gets the date and time when the event occurred or the data was recorded.
     /// </summary>
@@ -50,24 +51,34 @@ public readonly record struct LogEnvelope
     /// Gets the identifier of the user or process that initiated the operation.
     /// </summary>
     public string Caller { get; init; }
+    
+    // Fixed-width box drawing infrastructure
 
-    /// <summary>
-    /// Initializes a new instance of the LogEnvelope class with the specified severity, Message, and optional exception
-    /// and caller information.
-    /// </summary>
-    /// <param name="severity">The severity level of the log entry, indicating its importance or type.</param>
-    /// <param name="message">The log Message describing the event or condition being logged.</param>
-    /// <param name="exception">Optional. Additional exception information to include with the log entry, or null if not applicable.</param>
-    /// <param name="sourceFile">Optional. The path of the source file where the log entry was generated. Defaults to an empty string.</param>
-    /// <param name="sourceLine">Optional. The line number in the source file where the log entry was generated. Defaults to 0.</param>
-    /// <param name="caller">Optional. The name of the method or member that generated the log entry. Defaults to an empty string.</param>
+    private const char TL = '╔';
+    private const char TR = '╗';
+
+    private const char BL = '╚';
+    private const char BR = '╝';
+
+    private const char MR = '╢';
+    private const char ML = '╟';
+
+    private const char HL = '═';
+    private const char VL = '║';
+
+    private const int BOX_WIDTH = 80;
+    private const int INNER_WIDTH = BOX_WIDTH - 4; // | + space + content + space + |
+    #endregion
+
+    #region Constructor
     public LogEnvelope(
         DebugSeverity severity,
         string message,
         ExceptionInfo? exception = null,
         string sourceFile = "",
         int sourceLine = 0,
-        string caller = "")
+        string caller = ""
+        )
     {
         Timestamp = DateTime.UtcNow;
         Severity = severity;
@@ -77,41 +88,69 @@ public readonly record struct LogEnvelope
         SourceLine = sourceLine;
         Caller = caller;
     }
+    #endregion
 
-    /// <summary>
-    /// Returns a formatted string that represents the current log entry, including details such as timestamp, severity,
-    /// Message, and exception information if present.
-    /// </summary>
-    /// <remarks>The returned string is formatted for readability and may include additional context such as
-    /// source file and caller information if available. This method is intended for diagnostic or display purposes and
-    /// is not suitable for machine parsing.</remarks>
-    /// <returns>A multi-line string containing the log entry details. If an exception is associated with the entry, the string
-    /// includes exception type, Message, and stack trace; otherwise, it summarizes the log Message and metadata.</returns>
+
+    private static string BoxLine(char left, char right)
+        => $"{left}{new string('═', BOX_WIDTH - 2)}{right}";
+
+    private static string BoxContent(string content)
+    {
+        if (content.Length > INNER_WIDTH)
+            content = content[..INNER_WIDTH];
+
+        return $"{VL} {content,-INNER_WIDTH} {VL}";
+    }
+
+    private static IEnumerable<string> WrapField(string label, string value)
+    {
+        string prefix = $"{label,-9}: ";
+        int available = INNER_WIDTH - prefix.Length;
+
+        if (available < 10)
+            available = 10;
+
+        for (int i = 0; i < value.Length; i += available)
+        {
+            string chunk = value.Substring(i, Math.Min(available, value.Length - i));
+
+            if (i == 0)
+                yield return BoxContent(prefix + chunk);
+            else
+                yield return BoxContent(new string(' ', prefix.Length) + chunk);
+        }
+    }
+
     public override string ToString()
     {
         var sb = new StringBuilder();
 
-        sb.AppendLine($"╔════════════════════════════════════════════════════════════");
-        sb.AppendLine($"║ Timestamp : {Timestamp:yyyy-MM-dd HH:mm:ss.fff} UTC");
-        sb.AppendLine($"║ Severity  : {Severity}");
-        sb.AppendLine($"║ Message   : {Message}");
-        sb.AppendLine($"╟═══════════════════════════════════════════════════════════");
-        if (!string.IsNullOrEmpty(SourceFile))
-            sb.AppendLine($"║ Source    : {SourceFile}:{SourceLine}");
+        sb.AppendLine(BoxLine(TL, TR));
+        sb.AppendLine(BoxContent($"Timestamp : {Timestamp:yyyy-MM-dd HH:mm:ss.fff} UTC"));
+        sb.AppendLine(BoxContent($"Severity  : {Severity}"));
+        sb.AppendLine(BoxContent($"Message   : {Message}"));
+        sb.AppendLine(BoxLine(ML, MR));
 
-        if (!string.IsNullOrEmpty(Caller))
-            sb.AppendLine($"║ Caller    : {Caller}");
+        if (!string.IsNullOrEmpty(SourceFile))
+        {
+            string fullPath = $"{SourceFile}:{SourceLine}";
+
+            foreach (string line in WrapField("Source", fullPath))
+                sb.AppendLine(line);
+
+            if (!string.IsNullOrEmpty(Caller))
+                sb.AppendLine(BoxContent($"Caller    : {Caller}"));
+        }
 
         if (Exception is null)
         {
-            sb.AppendLine("╚═══════════════════════════════════════════════════════════");
+            sb.AppendLine(BoxLine(BL, BR));
             return sb.ToString();
         }
 
-        sb.AppendLine("║");
-        sb.AppendLine("║ Exception Details:");
+        sb.AppendLine(BoxContent(""));
+        sb.AppendLine(BoxContent("Exception Details:"));
 
-        // Walk inner exceptions (max depth = 10)
         var current = Exception;
         int depth = 0;
 
@@ -119,37 +158,36 @@ public readonly record struct LogEnvelope
         {
             string indent = new(' ', depth * 2);
 
-            sb.AppendLine($"║ {indent}Type    : {current.Type}");
-            sb.AppendLine($"║ {indent}Message : {current.Message}");
-            sb.AppendLine($"║ {indent}Stack   :");
+            sb.AppendLine(BoxContent($"{indent}Type    : {current.Type}"));
+            sb.AppendLine(BoxContent($"{indent}Message : {current.Message}"));
+            sb.AppendLine(BoxContent($"{indent}Stack   :"));
 
             if (current.StackTrace is null)
             {
-                sb.AppendLine($"║ {indent}  <No stack trace available>");
+                sb.AppendLine(BoxContent($"{indent}  <No stack trace available>"));
             }
             else
             {
                 foreach (var line in current.StackTrace.Split('\n'))
-                    sb.AppendLine($"║ {indent}  {line}");
+                    sb.AppendLine(BoxContent($"{indent}  {line}"));
             }
 
-            current = current.Inner;   // Assuming ExceptionInfo.Inner exists.
+            current = current.Inner;
             depth++;
 
             if (current is not null)
             {
-                sb.AppendLine($"║");
-                sb.AppendLine($"║ {indent}--- Inner Exception ---");
-                sb.AppendLine($"║");
+                sb.AppendLine(BoxContent(""));
+                sb.AppendLine(BoxContent($"{indent}--- Inner Exception ---"));
+                sb.AppendLine(BoxContent(""));
             }
         }
 
-        sb.AppendLine("╚═══════════════════════════════════════════════════════════");
-
+        sb.AppendLine(BoxLine(BL, BR));
         return sb.ToString();
     }
-
 }
+
 
 /*
 *------------------------------------------------------------

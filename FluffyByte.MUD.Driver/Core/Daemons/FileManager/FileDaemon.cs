@@ -6,6 +6,10 @@
  *-------------------------------------------------------------
  */
 
+using System.Collections.Concurrent;
+using System.IO.Enumeration;
+using FluffyByte.MUD.Driver.Core.Types.Daemons;
+using FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
 using FluffyByte.MUD.Driver.Core.Types.Heartbeats;
 using FluffyByte.MUD.Driver.FluffyTools;
 
@@ -16,65 +20,183 @@ namespace FluffyByte.MUD.Driver.Core.Daemons.FileManager;
 /// </summary>
 public static class FileDaemon
 {
+    public static string Name => "filed";
+
+    private static readonly Lock _dirtyLock = new();
+
     private static Heartbeat? _systemFastHeartbeat;
     private static Heartbeat? _systemSlowHeartbeat;
     private static Heartbeat? _gameHeartbeat;
 
-    /// <summary>
-    /// Initializes and starts the system fast heartbeat asynchronously.
-    /// </summary>
-    /// <returns>A task that represents the asynchronous operation of starting the system fast heartbeat.</returns>
+    private const int FlushThresholdBytes = 30 * 1024 * 1024;
+
+    public static DaemonStatus State { get; private set; } = DaemonStatus.Stopped;
+
+    private static readonly ConcurrentDictionary<string, FileEntry> _cache = [];
+    private static readonly ConcurrentDictionary<string, byte> _dirty = [];
+
+    private static long _queuedBytes;
+
+    // ---------------------------------------------------------
+    // Public API
+    // ---------------------------------------------------------
+
     public static async Task RequestStart()
     {
-        _systemFastHeartbeat = new(TimeSpan.FromMilliseconds(1500), SystemFastTick);
-        _systemSlowHeartbeat = new(TimeSpan.FromMilliseconds(3000), SystemSlowTick);
-        _gameHeartbeat = new(TimeSpan.FromMilliseconds(3500), GameTick);
+        _systemFastHeartbeat = new(TimeSpan.FromMilliseconds(5000), SystemFastTick);
+        _systemSlowHeartbeat = new(TimeSpan.FromMilliseconds(10000), SystemSlowTick);
+        _gameHeartbeat = new(TimeSpan.FromMilliseconds(30000), GameTick);
 
-        await _systemFastHeartbeat.Start();
-        await _systemSlowHeartbeat.Start();
-        await _gameHeartbeat.Start();
+        try
+        {
+            await _systemFastHeartbeat.Start();
+            await _systemSlowHeartbeat.Start();
+            await _gameHeartbeat.Start();
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Debug("RequestStart canceled due to shutdown.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+        }
     }
 
-    /// <summary>
-    /// Requests a stop of the system fast heartbeat asynchronously.
-    /// </summary>
-    /// <remarks>If the system fast heartbeat is not initialized, the method logs a warning and does not
-    /// perform the stop operation.</remarks>
-    /// <returns>A task that represents the asynchronous stop operation.</returns>
     public static async Task RequestStop()
     {
-        if(_systemFastHeartbeat == null || _systemSlowHeartbeat == null || _gameHeartbeat == null)
+        if (_systemFastHeartbeat is null ||
+            _systemSlowHeartbeat is null ||
+            _gameHeartbeat is null)
         {
-            Log.Warn($"A heartbeat timer was null.");
+            Log.Warn("A heartbeat timer was null; cannot stop completely.");
             return;
         }
 
+        await FlushAll();
 
         await _systemFastHeartbeat.Stop();
         await _systemSlowHeartbeat.Stop();
         await _gameHeartbeat.Stop();
+
+        State = DaemonStatus.Stopped;
     }
 
-    /// <summary>
-    /// Performs a fast system tick operation for the specified tick value asynchronously.
-    /// </summary>
-    /// <param name="tick">The tick value representing the current system tick to process.</param>
-    /// <returns>A task that represents the asynchronous operation.</returns>
-    private static async Task SystemFastTick(long tick)
+    public static async Task<byte[]?> ReadFile(string path)
     {
-        Log.Info($"SystemFastTick called.");
+        if (_cache.TryGetValue(path, out var cached))
+            return cached.Content;
 
-        await Task.CompletedTask;
+        if (!File.Exists(path))
+        {
+            Log.Warn($"ReadFile failed: not found: {path}");
+            return null;
+        }
+
+        byte[] bytes = await File.ReadAllBytesAsync(path);
+
+        // Cache as clean (not dirty)
+        _cache[path] = new FileEntry(path, bytes);
+
+        return bytes;
     }
 
-    private static async Task SystemSlowTick(long tick)
+    public static void WriteFile(string path, byte[] newContent)
     {
-        Log.Info($"SystemSlowTick called.");
+        if (SystemDaemon.GlobalShutdownToken.IsCancellationRequested)
+        {
+            Log.Warn($"WriteFile blocked during shutdown: {path}");
+            return;
+        }
+
+        SetCacheEntry(path, newContent, dirty: true);
     }
 
-    private static async Task GameTick(long tick)
+    // ---------------------------------------------------------
+    // Heartbeat ticks
+    // ---------------------------------------------------------
+
+    private static Task SystemFastTick(long _) => CheckFlush();
+    private static Task SystemSlowTick(long _) => CheckFlush();
+    private static Task GameTick(long _) => CheckFlush();
+
+    // ---------------------------------------------------------
+    // Internals
+    // ---------------------------------------------------------
+
+    private static void SetCacheEntry(string path, byte[] content, bool dirty)
     {
-        Log.Info($"Game Tick called.");
+        var entry = _cache.AddOrUpdate(
+            path,
+            p => new FileEntry(p, content),
+            (_, existing) =>
+            {
+                existing.Update(content);
+                return existing;
+            });
+
+        if (dirty)
+        {
+            _dirty[path] = 0;
+            Interlocked.Exchange(ref _queuedBytes, CalculateDirtyBytes());
+        }
+    }
+
+    private static long CalculateDirtyBytes()
+    {
+        long total = 0;
+
+        foreach (var p in _dirty.Keys)
+        {
+            if (_cache.TryGetValue(p, out var e))
+                total += e.SizeBytes;
+        }
+
+        return total;
+    }
+
+    private static async Task CheckFlush()
+    {
+        if (_dirty.IsEmpty)
+            return;
+
+        if (Interlocked.Read(ref _queuedBytes) >= FlushThresholdBytes)
+        {
+            await FlushAll();
+            return;
+        }
+
+        await FlushAll();
+    }
+
+    private static async Task FlushAll()
+    {
+        if (_dirty.IsEmpty)
+            return;
+
+        foreach (var path in _dirty.Keys)
+        {
+            if (!_cache.TryGetValue(path, out var entry))
+                continue;
+
+            byte[] data = entry.Content;
+
+            try
+            {
+                await File.WriteAllBytesAsync(path, data);
+            }
+            catch (Exception ex)
+            {
+                Log.Error($"Flush failed for {path}: {ex.Message}");
+            }
+        }
+
+        lock (_dirtyLock)
+        {
+            _dirty.Clear();
+        }
+
+        Interlocked.Exchange(ref _queuedBytes, 0);
     }
 }
 

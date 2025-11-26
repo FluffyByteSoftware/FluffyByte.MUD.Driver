@@ -21,6 +21,8 @@ namespace FluffyByte.MUD.Driver.FluffyTools;
 /// can be called from any context.</remarks>
 public static class Log
 {
+    public static bool DebugModeEnabled { get; set; } = true;
+
     public static void Scribe(
         DebugSeverity severity,
         string message,
@@ -42,14 +44,24 @@ public static class Log
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = "",
         [CallerFilePath] string file = "")
-        => CreateEnvelope(DebugSeverity.Debug, message, null, line, member, file);
+    {
+        if(!DebugModeEnabled)
+            return;
+
+        CreateEnvelope(DebugSeverity.Debug, message, null, line, member, file);
+    }
 
     public static void Debug(
         Exception ex,
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = "",
         [CallerFilePath] string file = "")
-        => CreateEnvelope(DebugSeverity.Debug, ex.Message, ex, line, member, file);
+    {
+        if (!DebugModeEnabled)
+            return;
+
+        CreateEnvelope(DebugSeverity.Debug, ex.Message, ex, line, member, file);
+    }
 
     public static void Debug(
         string message,
@@ -57,7 +69,11 @@ public static class Log
         [CallerLineNumber] int line = 0,
         [CallerMemberName] string member = "",
         [CallerFilePath] string file = "")
-        => CreateEnvelope(DebugSeverity.Debug, message, ex, line, member, file);
+    {
+        if(!DebugModeEnabled)
+            return;
+        CreateEnvelope(DebugSeverity.Debug, message, ex, line, member, file);
+    }
 
     public static void Warn(
         string message,
@@ -120,6 +136,8 @@ public static class Log
             member
         );
 
+        ConsoleColor fg = Console.ForegroundColor;
+
         Console.ForegroundColor = severity switch
         {
             DebugSeverity.Debug => ConsoleColor.Green,
@@ -130,7 +148,8 @@ public static class Log
         };
 
         Console.WriteLine(envelope.ToString());
-        Console.ResetColor();
+
+        Console.ForegroundColor = fg;
     }
 }
 
