@@ -26,7 +26,7 @@ public static class Log
     /// Useful for debugging.
     /// </summary>
     public static bool DebugModeEnabled { get; set; } = true;
-
+    #region Public Methods
     public static void DisplayFileContents(string fileContents)
     {
         Console.WriteLine("File Contents: ");
@@ -128,7 +128,9 @@ public static class Log
         [CallerMemberName] string member = "",
         [CallerFilePath] string file = "")
         => CreateEnvelope(DebugSeverity.Error, message, ex, line, member, file);
+    #endregion
 
+    #region Private Methods
     private static void CreateEnvelope(
         DebugSeverity severity,
         string message,
@@ -161,6 +163,7 @@ public static class Log
 
         Console.ForegroundColor = fg;
     }
+    #endregion
 }
 
 

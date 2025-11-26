@@ -325,7 +325,7 @@ public static class FileDaemon
             if (allDirtyFiles.Count == 0)
                 return "No files waiting to write.";
 
-            return GrammarTool.ToCommaList(allDirtyFiles);
+            return Grammar.ToCommaList(allDirtyFiles);
         }
     }
     #endregion
