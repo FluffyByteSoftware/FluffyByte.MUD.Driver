@@ -1,0 +1,3 @@
+﻿DateTime Notes:
+Always prefer to use times in Utc so there's no need to worry about DST.
+

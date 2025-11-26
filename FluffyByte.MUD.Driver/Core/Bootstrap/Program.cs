@@ -60,6 +60,10 @@ public static class Program
             Log.DisplayFileContents(UTF8Encoding.UTF8.GetString(fileData));
         }
 
+        byte[] writeThis = UTF8Encoding.UTF8.GetBytes("This is a test write at " + DateTime.UtcNow.ToString());
+
+        await FileDaemon.IO.Write(@"E:\Temp\test.txt", writeThis, FilePriority.Game);
+
         Console.WriteLine($"{SystemDaemon.RequestStatus()}");
 
         Console.ReadLine();
