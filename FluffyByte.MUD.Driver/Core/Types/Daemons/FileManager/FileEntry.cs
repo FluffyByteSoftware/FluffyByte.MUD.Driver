@@ -10,20 +10,27 @@ using System.Text;
 
 namespace FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
 
-public sealed class FileEntry(string path, byte[] content)
+public sealed class FileEntry(string path, 
+    byte[]? content = null, 
+    FilePriority priority = FilePriority.Game)
 {
     private readonly Lock _lock = new();
 
     public string Path { get; } = path;
-    public byte[] Content { get; private set; } = content;
+    public byte[]? Content { get; private set; } = content;
 
-    public int SizeBytes => Content.Length;
+    public FilePriority Priority { get; private set; } = priority;
 
-    public void Update(byte[] newContent)
+    public int SizeBytes => Content?.Length ?? 0;
+
+    public void Update(byte[] newContent, FilePriority? priority = null)
     {
         lock (_lock)
         {
             Content = newContent;
+
+            if (priority.HasValue)
+                Priority = priority.Value;
         }
     }
 }

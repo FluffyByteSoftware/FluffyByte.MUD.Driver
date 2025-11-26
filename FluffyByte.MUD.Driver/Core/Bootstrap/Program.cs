@@ -7,7 +7,9 @@
  */
 
 using System.Diagnostics;
+using System.Text;
 using FluffyByte.MUD.Driver.Core.Daemons;
+using FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
 using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Bootstrap;
@@ -44,10 +46,22 @@ public static class Program
 
         Thread.Sleep(1000);
 
-        Log.Info($"Testing heartbeat.");
         await SystemDaemon.RequestStart();
 
-        Console.ReadLine();
+
+        byte[]? fileData = await FileDaemon.IO.Read(@"E:\Temp\test.txt", FilePriority.Game);
+
+        if(fileData == null || fileData.Length == 0)
+        {
+            Log.Warn($@"E:\Temp\test.txt was empty.");
+        }
+        else
+        {
+            Log.DisplayFileContents(UTF8Encoding.UTF8.GetString(fileData));
+        }
+
+        Console.WriteLine($"{SystemDaemon.RequestStatus()}");
+
         Console.ReadLine();
 
         await SystemDaemon.RequestStop();

@@ -21,7 +21,17 @@ namespace FluffyByte.MUD.Driver.FluffyTools;
 /// can be called from any context.</remarks>
 public static class Log
 {
+    /// <summary>
+    /// Marks whether or not the Logger should display Debug messages or not.
+    /// Useful for debugging.
+    /// </summary>
     public static bool DebugModeEnabled { get; set; } = true;
+
+    public static void DisplayFileContents(string fileContents)
+    {
+        Console.WriteLine("File Contents: ");
+        Console.WriteLine($"{fileContents}");
+    }
 
     public static void Scribe(
         DebugSeverity severity,

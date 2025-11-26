@@ -7,7 +7,7 @@
  */
 
 using System.Runtime.CompilerServices;
-using FluffyByte.MUD.Driver.Core.Daemons.FileManager;
+using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
 
@@ -32,7 +32,7 @@ public static class SystemDaemon
     /// The name of the daemon.
     /// </summary>
     public static string Name => "systemd";
-
+    
     /// <summary>
     /// Current status of the Daemon
     /// 1. Stopped
@@ -41,7 +41,7 @@ public static class SystemDaemon
     /// 4. Stopping
     /// 5. Error
     /// </summary>
-    public static DaemonStatus Status { get; private set; }
+    public static DaemonStatus State { get; private set; }
 
     /// <summary>
     /// Starts the System Daemon
@@ -50,12 +50,37 @@ public static class SystemDaemon
     /// <returns></returns>
     public static async ValueTask RequestStart()
     {
-        Log.Debug($"Initialization called on {Name}.");
-        
-        GlobalShutdownToken = new();
+        if(State != DaemonStatus.Stopped 
+            || State != DaemonStatus.Error)
+        { 
+            Log.Error($"Cannot start {Name} because it is already running or in the process of starting. Current State: {State}");
+            return;
+        }
 
-        await FileDaemon.RequestStart();
-        Log.Debug($"GlobalShutdownToken registered.");
+        State = DaemonStatus.Starting;
+
+        try
+        {
+            GlobalShutdownToken = new();
+
+            await FileDaemon.RequestStart();
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Debug($"Operation canceled, this is expected if it's a shutdown.");
+        }
+        catch(Exception ex)
+        {
+            Log.Error($"Exception in RequestStart()", ex);
+
+            State = DaemonStatus.Error;
+
+            return;
+        }
+        finally
+        {
+            State = DaemonStatus.Running;
+        }
     }
 
     /// <summary>
@@ -66,13 +91,41 @@ public static class SystemDaemon
     {
         Log.Debug($"Shutdown called on {Name}.");
 
-        CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(GlobalShutdownToken);
+        State = DaemonStatus.Stopping;
 
-        await _cts.CancelAsync();
+        try
+        {
+            CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(GlobalShutdownToken);
 
-        await FileDaemon.RequestStop();
+            await _cts.CancelAsync();
 
-        Log.Debug($"GlobalShutdownToken cancelled.");
+            await FileDaemon.RequestStop();
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Debug($"Operation canceled during shutdown.");
+        }
+        catch(Exception ex)
+        {
+            Log.Error($"Execption in RequestStop()", ex);
+
+            State = DaemonStatus.Error;
+            return;
+        }
+        finally
+        {
+            State = DaemonStatus.Stopped;
+        }
+    }
+
+    public static async Task<string> RequestStatus()
+    {
+        StringBuilder sb = new();
+
+        sb.AppendLine($"{FileDaemon.Name} -- {FileDaemon.State} -- {FileDaemon.Uptime}");
+        // Add future daemons here
+
+        return sb.ToString();
     }
 }
 

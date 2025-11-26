@@ -1,0 +1,605 @@
+/*
+ * (FileDaemon.cs)
+ *------------------------------------------------------------
+ * Created - 11/24/2025 9:27:27 PM
+ * Created by - Seliris
+ *-------------------------------------------------------------
+ */
+
+using System.Collections.Concurrent;
+using System.Text;
+using FluffyByte.MUD.Driver.Core.Types.Daemons;
+using FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
+using FluffyByte.MUD.Driver.Core.Types.Heartbeats;
+using FluffyByte.MUD.Driver.FluffyTools;
+
+namespace FluffyByte.MUD.Driver.Core.Daemons;
+
+
+/// <summary>
+/// Provides static methods and properties for managing file operations and background heartbeat processing within the
+/// application daemon. Supports asynchronous start and stop operations, file reading and writing with caching, and
+/// prioritization of file flush queues.
+/// </summary>
+/// <remarks>FileDaemon is designed to operate as a singleton service, coordinating periodic background tasks and
+/// file persistence. It maintains internal caches and flush queues to optimize file I/O and ensure data consistency.
+/// All public methods are thread-safe and intended to be called from application-level code. The daemon's state
+/// transitions through defined statuses to reflect its operational lifecycle.</remarks>
+public static class FileDaemon
+{
+    /// <summary>
+    /// Name of this Daemon (filed)
+    /// </summary>
+    public static string Name => "filed";
+
+    private static Heartbeat? _systemFastHeartbeat;
+    private static Heartbeat? _systemLongHeartbeat;
+    private static Heartbeat? _gameHeartbeat;
+
+    private static Cache? _cacheFast;
+    private static Cache? _cacheSlow;
+    private static Cache? _cacheGame;
+
+    /// <summary>
+    /// Gets the current status of the filedaemon process.
+    /// </summary>
+    /// <remarks>The value reflects the most recent state transition of the daemon. This property is
+    /// thread-safe and can be accessed from any thread.</remarks>
+    public static DaemonStatus State { get; private set; } = DaemonStatus.Stopped;
+
+    private static DateTime? _lastStartTime = null;
+
+    /// <summary>
+    /// Indicates whether block writing is currently enabled.
+    /// </summary>
+    internal static bool writeBlock = false;
+
+    /// <summary>
+    /// Gets the duration for which the daemon has been running since its last start.
+    /// </summary>
+    /// <remarks>If the daemon is not running or has never been started, the value is <see
+    /// cref="TimeSpan.Zero"/>.</remarks>
+    public static TimeSpan Uptime
+    {
+        get
+        {
+            if (_lastStartTime == null || State == DaemonStatus.Stopped)
+            {
+                return TimeSpan.Zero;
+            }
+
+            return DateTime.UtcNow - _lastStartTime.Value;
+        }
+    }
+
+    #region Public API - Daemon Lifecycle
+    /// <summary>
+    /// Initiates the startup sequence for the daemon asynchronously, transitioning its state to running if successful.
+    /// </summary>
+    /// <remarks>If the startup process is canceled or encounters an error, the daemon state is set to stopped
+    /// or error, respectively. This method should be called before performing operations that require the daemon to be
+    /// running.</remarks>
+    /// <returns>A task that represents the asynchronous operation of starting the daemon.</returns>
+    public static async Task RequestStart()
+    {
+        State = DaemonStatus.Starting;
+        writeBlock = false;
+
+        // Initialize caches
+        _cacheFast = new Cache();
+        _cacheSlow = new Cache();
+        _cacheGame = new Cache();
+
+        try
+        {
+            _systemFastHeartbeat = new(TimeSpan.FromSeconds(5), SystemFastTick);
+            _systemLongHeartbeat = new(TimeSpan.FromMinutes(1), SystemSlowTick);
+            _gameHeartbeat = new(TimeSpan.FromSeconds(30), GameTick);
+
+            await _systemFastHeartbeat.Start();
+            await _systemLongHeartbeat.Start();
+            await _gameHeartbeat.Start();
+
+            _lastStartTime = DateTime.UtcNow;
+            State = DaemonStatus.Running;
+        }
+        catch (OperationCanceledException)
+        {
+            Log.Warn($"RequestStart stopped due to shutdown.");
+            State = DaemonStatus.Stopped;
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"Exception in RequestStart of {Name}", ex);
+            State = DaemonStatus.Error;
+        }
+    }
+
+    /// <summary>
+    /// Initiates a graceful shutdown of the daemon by stopping all heartbeat timers asynchronously.
+    /// </summary>
+    /// <remarks>If an error occurs while stopping the heartbeat timers, the daemon state is set to error and
+    /// the operation is aborted. The method should be called when a controlled stop of the daemon is
+    /// required.</remarks>
+    /// <returns>A task that represents the asynchronous stop operation. The task completes when all heartbeat timers have been
+    /// stopped.</returns>
+    /// <exception cref="NullReferenceException">Thrown if any of the required heartbeat timers are null.</exception>
+    public static async Task RequestStop()
+    {
+        State = DaemonStatus.Stopping;
+
+        if (_systemFastHeartbeat == null || _systemLongHeartbeat == null || _gameHeartbeat == null)
+        {
+            State = DaemonStatus.Error;
+            throw new NullReferenceException("A heartbeat timer was null in RequestStop()");
+        }
+
+        try
+        {
+            writeBlock = true;
+
+            // Flush everything before stopping
+            await FlushQueue.FlushAll();
+
+            await _systemFastHeartbeat.Stop();
+            await _gameHeartbeat.Stop();
+            await _systemLongHeartbeat.Stop();
+
+            State = DaemonStatus.Stopped;
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+            State = DaemonStatus.Error;
+        }
+    }
+    #endregion
+
+    #region Heartbeats (Ticks)
+    private static Task SystemFastTick(long _)
+    {
+        return FlushQueue.CheckFlush();
+    }
+
+    private static Task SystemSlowTick(long _)
+    {
+        return FlushQueue.CheckFlush();
+    }
+
+    private static Task GameTick(long _)
+    {
+        return FlushQueue.CheckFlush();
+    }
+    #endregion
+
+    #region IO Component (IO Class)
+    /// <summary>
+    /// Provides static methods for reading, writing, and managing file data with caching and prioritization support.
+    /// </summary>
+    /// <remarks>The IO class offers asynchronous file operations that utilize an internal cache to optimize
+    /// access and manage write priorities. All methods are thread-safe and intended for use in scenarios where file
+    /// access performance and prioritization are important. File writes may be deferred and queued based on system
+    /// state and priority. If a global shutdown is in progress, write operations are ignored to ensure system
+    /// stability.</remarks>
+    public static class IO
+    {
+        /// <summary>
+        /// Asynchronously reads the contents of the specified file and returns its data as a byte array. If the file
+        /// has been previously read and cached, returns the cached content.
+        /// </summary>
+        /// <remarks>If the file is not found, the method returns <see langword="null"/> and logs a
+        /// warning. Subsequent calls for the same path may return cached data if available. The method caches the file
+        /// content after reading.</remarks>
+        /// <param name="path">The path to the file to read. Must refer to an existing file.</param>
+        /// <param name="priority">The priority to assign to the file in the cache. The default is <see cref="FilePriority.Game"/>.</param>
+        /// <returns>A byte array containing the contents of the file, or <see langword="null"/> if the file does not exist.</returns>
+        public static async Task<byte[]?> Read(string path, FilePriority priority = FilePriority.Game)
+        {
+            if (writeBlock)
+            {
+                Log.Warn($"Received a request to read {path}, but writeBlock is {writeBlock}.");
+                return null;
+            }
+
+            if (_cacheFast == null || _cacheSlow == null || _cacheGame == null)
+            {
+                Log.Error($"One of the caches was null in Read!",
+                    new NullReferenceException($"Null reference for a cache."));
+                return null;
+            }
+
+            // Check cache first based on priority
+            Cache targetCache = priority switch
+            {
+                FilePriority.SystemFast => _cacheFast,
+                FilePriority.SystemSlow => _cacheSlow,
+                FilePriority.Game => _cacheGame,
+                _ => _cacheGame
+            };
+
+            // Return from cache if available
+            if (targetCache.TryGetValue(path, out FileEntry? cached))
+                return cached?.Content;
+
+            // Not in cache, read from disk
+            if (!File.Exists(path))
+            {
+                Log.Warn($"Read failed: not found: {path}");
+                return null;
+            }
+
+            byte[] bytes = await File.ReadAllBytesAsync(path, SystemDaemon.GlobalShutdownToken);
+
+            // Cache it for next time (not dirty since we just read it)
+            targetCache.SetEntry(path, bytes, dirty: false, priority);
+
+            return bytes;
+        }
+
+        /// <summary>
+        /// Asynchronously writes the specified data to the given path, using the provided file priority.
+        /// </summary>
+        /// <remarks>If a global shutdown is in progress, the write operation will be rejected and no data
+        /// will be written.</remarks>
+        /// <param name="path">The path where the data will be written. This should be a valid file system path.</param>
+        /// <param name="data">The byte array containing the data to write to the specified path. Cannot be null.</param>
+        /// <param name="priority">The priority level to assign to the write operation. Defaults to <see cref="FilePriority.Game"/> if not
+        /// specified.</param>
+        /// <returns>A task that represents the asynchronous write operation.</returns>
+        public static async Task Write(string path, byte[] data, FilePriority priority = FilePriority.Game)
+        {
+            if (SystemDaemon.GlobalShutdownToken.IsCancellationRequested)
+            {
+                Log.Warn($"{path} requested to write, but we are currently shutting down. Rejected.");
+                return;
+            }
+
+            if (_cacheFast == null || _cacheSlow == null || _cacheGame == null)
+            {
+                Log.Error($"One or more caches are null in Write request!");
+                return;
+            }
+            
+            try
+            {
+
+                switch (priority)
+                {
+                    case FilePriority.SystemFast:
+                        _cacheFast.SetEntry(path, data, dirty: true, priority);
+                        break;
+                    case FilePriority.SystemSlow:
+                        _cacheSlow.SetEntry(path, data, dirty: true, priority);
+                        break;
+                    case FilePriority.Game:
+                        _cacheGame.SetEntry(path, data, dirty: true, priority);
+                        break;
+                    default:
+                        Log.Error("Unknown priority in Write");
+                        break;
+                }
+            }
+            catch (OperationCanceledException)
+            {
+                Log.Warn($"OperationCanceledException during a Write - CHECK TO SEE IF {path} is updated!");
+            }
+            catch(Exception ex)
+            {
+                Log.Error(ex);
+                State = DaemonStatus.Error;
+
+                return;
+            }            
+        }
+
+        /// <summary>
+        /// Calculates the total number of bytes currently pending to be flushed in the queue.
+        /// </summary>
+        /// <returns>The number of bytes that have not yet been flushed. Returns 0 if there are no pending bytes.</returns>
+        public static long SizeUp()
+        {
+            return FlushQueue.CalculateDirtyBytes();
+        }
+
+        /// <summary>
+        /// Returns a formatted string listing the names of files that are currently queued to be written.
+        /// </summary>
+        /// <remarks>The returned string lists all file names present in the dirty queues.</remarks>
+        /// <returns>A comma-separated string containing the names of files waiting to be written. If no files are queued, 
+        /// returns a message indicating no files are waiting.</returns>
+        public static string FilesWaitingToWrite()
+        {
+            if (_cacheFast == null || _cacheGame == null || _cacheSlow == null)
+                throw new NullReferenceException("One or more caches were null in FilesWaitingToWrite");
+
+            List<string> allDirtyFiles = [];
+
+            // Get dirty files from each queue
+            allDirtyFiles.AddRange(FlushQueue.GetDirtyPaths(FilePriority.SystemFast));
+            allDirtyFiles.AddRange(FlushQueue.GetDirtyPaths(FilePriority.SystemSlow));
+            allDirtyFiles.AddRange(FlushQueue.GetDirtyPaths(FilePriority.Game));
+
+            if (allDirtyFiles.Count == 0)
+                return "No files waiting to write.";
+
+            return FormatList(allDirtyFiles);
+        }
+
+        /// <summary>
+        /// Helper to format a list with proper grammar (commas and "and")
+        /// </summary>
+        private static string FormatList(List<string> items)
+        {
+            if (items.Count == 0)
+                return string.Empty;
+
+            if (items.Count == 1)
+                return items[0];
+
+            if (items.Count == 2)
+                return $"{items[0]} and {items[1]}";
+
+            StringBuilder sb = new();
+            for (int i = 0; i < items.Count; i++)
+            {
+                if (i == items.Count - 1) // Last item
+                {
+                    sb.Append($"and {items[i]}");
+                }
+                else
+                {
+                    sb.Append($"{items[i]}, ");
+                }
+            }
+
+            return sb.ToString();
+        }
+    }
+    #endregion
+
+    #region Cache Component
+    /// <summary>
+    /// Provides a thread-safe in-memory cache for storing and retrieving file entries by path.
+    /// </summary>
+    /// <remarks>The cache uses a concurrent dictionary to ensure safe access from multiple threads. Entries
+    /// can be marked as dirty to indicate that they require flushing. This class is intended for internal use and is
+    /// not thread-affinitive; callers may access its members from any thread.</remarks>
+    internal class Cache
+    {
+        /// <summary>
+        /// Provides a thread-safe collection that maps file names to their corresponding file entries.
+        /// </summary>
+        internal readonly ConcurrentDictionary<string, FileEntry> entries = new();
+
+        /// <summary>
+        /// Attempts to retrieve the file entry associated with the specified path.
+        /// </summary>
+        /// <param name="path">The path of the file to locate. Cannot be null.</param>
+        /// <param name="entry">When this method returns, contains the <see cref="FileEntry"/> associated with the specified path, if found;
+        /// otherwise, <see langword="null"/>.</param>
+        /// <returns>true if the file entry was found for the specified path; otherwise, false.</returns>
+        internal bool TryGetValue(string path, out FileEntry? entry)
+        {
+            return entries.TryGetValue(path, out entry);
+        }
+
+        /// <summary>
+        /// Adds a new file entry or updates an existing entry with the specified content and priority, and optionally
+        /// marks the entry as dirty for later processing.
+        /// </summary>
+        /// <remarks>If an entry for the specified path already exists, its content and priority are
+        /// updated. Marking an entry as dirty may trigger additional processing, such as flushing changes to persistent
+        /// storage.</remarks>
+        /// <param name="path">The path of the file entry to add or update. Cannot be null or empty.</param>
+        /// <param name="content">The byte array containing the content to associate with the file entry. Cannot be null.</param>
+        /// <param name="dirty">A value indicating whether the entry should be marked as dirty for subsequent processing. If <see
+        /// langword="true"/>, the entry is flagged for flushing.</param>
+        /// <param name="priority">The priority level to assign to the file entry. Determines the order in which entries are processed.</param>
+        internal void SetEntry(string path, byte[] content, bool dirty, FilePriority priority)
+        {
+            FileEntry entry = entries.AddOrUpdate(
+                path,
+                p => new FileEntry(p, content, priority),
+                (_, existing) =>
+                {
+                    existing.Update(content, priority);
+                    return existing;
+                });
+
+            if (dirty)
+            {
+                FlushQueue.MarkDirty(path, priority);
+            }
+        }
+
+        /// <summary>
+        /// Returns an enumerable collection containing all file entries and their associated keys.
+        /// </summary>
+        /// <returns>An <see cref="IEnumerable{T}"/> of <see cref="KeyValuePair{string, FileEntry}"/> objects representing all
+        /// stored file entries. The collection may be empty if no entries exist.</returns>
+        internal IEnumerable<KeyValuePair<string, FileEntry>> GetAll()
+           => entries;
+    }
+    #endregion
+
+    #region FlushQueue Component
+    /// <summary>
+    /// Provides static methods for tracking and flushing dirty file entries from in-memory caches to persistent storage
+    /// based on priority and accumulated data size.
+    /// </summary>
+    /// <remarks>The FlushQueue component manages separate queues for different file priorities and monitors
+    /// the total size of dirty (modified but not yet flushed) files. When the queued data exceeds a defined threshold,
+    /// or during explicit flush operations, it writes all pending changes to disk. This class is intended for internal
+    /// use and is not thread-safe for direct manipulation of its internal state outside its provided methods.</remarks>
+    internal static class FlushQueue
+    {
+        private static readonly ConcurrentDictionary<string, byte> _high = new();
+        private static readonly ConcurrentDictionary<string, byte> _low = new();
+        private static readonly ConcurrentDictionary<string, byte> _game = new();
+
+        private const int FlushThresholdBytes = 10 * 1024 * 1024;
+        private static long _queuedBytes;
+
+        /// <summary>
+        /// Marks the specified file path as dirty, indicating that it requires processing at the given priority level.
+        /// </summary>
+        /// <param name="path">The file system path to be marked as dirty. Cannot be null or empty.</param>
+        /// <param name="priority">The priority level to assign to the dirty file path. Determines the processing order.</param>
+        internal static void MarkDirty(string path, FilePriority priority)
+        {
+            var queue = GetQueue(priority);
+
+            if (!queue.TryAdd(path, 0))
+                return;
+
+            if (GetCache(priority).TryGetValue(path, out FileEntry? entry) && entry != null)
+                Interlocked.Add(ref _queuedBytes, entry.SizeBytes);
+        }
+
+        /// <summary>
+        /// Gets the list of dirty file paths for a specific priority
+        /// </summary>
+        internal static IEnumerable<string> GetDirtyPaths(FilePriority priority)
+        {
+            return GetQueue(priority).Keys;
+        }
+
+        private static ConcurrentDictionary<string, byte> GetQueue(FilePriority priority)
+        {
+            return priority switch
+            {
+                FilePriority.SystemFast => _high,
+                FilePriority.SystemSlow => _low,
+                FilePriority.Game => _game,
+                _ => throw new NotImplementedException($"Unknown priority: {priority}")
+            };
+        }
+
+        private static Cache GetCache(FilePriority priority)
+        {
+            return priority switch
+            {
+                FilePriority.SystemFast => _cacheFast ?? throw new NullReferenceException("_cacheFast is null"),
+                FilePriority.SystemSlow => _cacheSlow ?? throw new NullReferenceException("_cacheSlow is null"),
+                FilePriority.Game => _cacheGame ?? throw new NullReferenceException("_cacheGame is null"),
+                _ => throw new NotImplementedException($"Unknown priority: {priority}")
+            };
+        }
+
+        /// <summary>
+        /// Calculates the total number of bytes for all cached file entries currently marked as dirty.
+        /// </summary>
+        /// <remarks>This method aggregates the sizes of file entries found in multiple internal cache
+        /// dictionaries. The result reflects the current state of the cache and may change as entries are added or
+        /// removed.</remarks>
+        /// <returns>The total size, in bytes, of all dirty cached file entries. Returns 0 if no entries are dirty.</returns>
+        internal static long CalculateDirtyBytes()
+        {
+            if (_cacheFast is null || _cacheSlow is null || _cacheGame is null)
+            {
+                Log.Error("Cache not initialized in CalculateDirtyBytes.");
+                return 0;
+            }
+
+            return
+                  SumSizes(_high.Keys, _cacheFast)
+                + SumSizes(_low.Keys, _cacheSlow)
+                + SumSizes(_game.Keys, _cacheGame);
+        }
+
+        private static long SumSizes(IEnumerable<string> keys, Cache cache)
+        {
+            long sum = 0;
+
+            foreach (string key in keys)
+            {
+                if (cache.TryGetValue(key, out FileEntry? entry) && entry is not null)
+                    sum += entry.SizeBytes;
+            }
+
+            return sum;
+        }
+
+        /// <summary>
+        /// Checks the state of internal file caches and flushes them if necessary.
+        /// </summary>
+        /// <remarks>This method flushes all file caches if the threshold is exceeded.
+        /// This method is intended for internal use and may be called concurrently.</remarks>
+        /// <returns>A task that represents the asynchronous flush operation.</returns>
+        internal static async Task CheckFlush()
+        {
+            if (_high.IsEmpty && _game.IsEmpty && _low.IsEmpty)
+            {
+                return; // Nothing to flush
+            }
+
+            if (Interlocked.Read(ref _queuedBytes) >= FlushThresholdBytes)
+            {
+                await FlushAll();
+            }
+        }
+
+        /// <summary>
+        /// Asynchronously flushes all pending items from the internal high, game, and low priority queues.
+        /// </summary>
+        /// <remarks>This method resets the internal queued byte count after flushing all queues. It is
+        /// intended for internal use and should not be called directly from external code.</remarks>
+        /// <returns>A task that represents the asynchronous flush operation.</returns>
+        internal static async Task FlushAll()
+        {
+            if (_cacheFast == null || _cacheSlow == null || _cacheGame == null)
+            {
+                Log.Error("Caches not initialized in FlushAll!");
+                return;
+            }
+
+            await FlushQueueInternal(_high, _cacheFast);
+            await FlushQueueInternal(_low, _cacheSlow);
+            await FlushQueueInternal(_game, _cacheGame);
+
+            Interlocked.Exchange(ref _queuedBytes, 0);
+        }
+
+        private static async Task FlushQueueInternal(
+            ConcurrentDictionary<string, byte> queue,
+            Cache cache)
+        {
+            if (queue.IsEmpty)
+                return;
+
+            // Snapshot keys for safe enumeration
+            string[] keys = [.. queue.Keys];
+
+            foreach (string path in keys)
+            {
+                if (!cache.TryGetValue(path, out FileEntry? entry) || entry == null)
+                    continue;
+
+                byte[]? data = entry.Content;
+
+                if (data == null || data.Length == 0)
+                    continue;
+
+                try
+                {
+                    await File.WriteAllBytesAsync(path, data, SystemDaemon.GlobalShutdownToken);
+                    
+                    queue.TryRemove(path, out _);
+                }
+                catch (Exception ex)
+                {
+                    Log.Error($"Flush failed for {path}: {ex.Message}", ex);
+                    // File remains in queue for retry on next flush
+                }
+            }
+        }
+    }
+    #endregion
+}
+
+/*
+*------------------------------------------------------------
+* (FileDaemon.cs)
+* See License.txt for licensing information.
+*-----------------------------------------------------------
+*/

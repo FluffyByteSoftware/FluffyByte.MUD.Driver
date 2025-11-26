@@ -65,10 +65,10 @@ public sealed class Heartbeat(TimeSpan interval, Func<long, Task> onTickAsync) :
     /// been started.</remarks>
     /// <returns>A <see cref="ValueTask"/> that represents the asynchronous stop operation. The returned task is completed when
     /// the timer has been stopped.</returns>
-    public ValueTask Stop()
+    public Task Stop()
     {
         if (_timer is null)
-            return ValueTask.CompletedTask;
+            return Task.CompletedTask;
 
         if(!SystemDaemon.GlobalShutdownToken.IsCancellationRequested)
         {
@@ -77,7 +77,7 @@ public sealed class Heartbeat(TimeSpan interval, Func<long, Task> onTickAsync) :
         
         _timer.Dispose();
 
-        return ValueTask.CompletedTask;
+        return Task.CompletedTask;
     }
 
     /// <summary>
