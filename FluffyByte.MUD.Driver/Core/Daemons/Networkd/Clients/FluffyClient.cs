@@ -282,6 +282,14 @@ public sealed class FluffyClient
         }
     }
 
+
+    /// <summary>
+    /// Filters out escape codes, and other artifacts from raw telnet data.
+    /// </summary>
+    /// <param name="buffer">The raw telnet data buffer.</param>
+    /// <param name="length">The length of the data to filter.</param>
+    /// <returns>A new byte array containing the filtered data.</returns>
+
     private static byte[] FilterTelnetSequences(byte[] buffer, int length)
     {
         const byte IAC = 255;   
