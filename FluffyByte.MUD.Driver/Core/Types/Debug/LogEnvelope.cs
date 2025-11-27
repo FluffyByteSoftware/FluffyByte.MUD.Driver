@@ -98,10 +98,23 @@ public readonly record struct LogEnvelope
     #endregion
 
     #region Box Drawing Helpers
-
+    /// <summary>
+    /// Creates a horizontal box line using the specified left and right border characters.
+    /// </summary>
+    /// <param name="left">The character to use for the left border of the box line.</param>
+    /// <param name="right">The character to use for the right border of the box line.</param>
+    /// <returns>A string representing a horizontal box line with the given left and right border characters and a horizontal
+    /// line in between.</returns>
     private static string BoxLine(char left, char right)
         => $"{left}{new string(HL, BOX_WIDTH - 2)}{right}";
 
+    /// <summary>
+    /// Formats the specified content as a boxed line, aligning it within a fixed-width area and surrounding it with
+    /// vertical line characters.
+    /// </summary>
+    /// <param name="content">The text to be formatted and placed inside the box. If null, the resulting line will contain only padding
+    /// between the vertical lines.</param>
+    /// <returns>A string representing the boxed line with the content aligned and enclosed by vertical line characters.</returns>
     private static string BoxContent(string content)
         => $"{VL} {content,-INNER_WIDTH} {VL}";
 
@@ -191,6 +204,18 @@ public readonly record struct LogEnvelope
         }
     }
 
+    /// <summary>
+    /// Appends a formatted field to the specified <see cref="StringBuilder"/>, aligning the label and value with
+    /// optional width and indentation.
+    /// </summary>
+    /// <remarks>Each field is wrapped and formatted so that the label and value are aligned according to the
+    /// specified width and indentation. This method is useful for generating readable, column-aligned text
+    /// output.</remarks>
+    /// <param name="sb">The <see cref="StringBuilder"/> to which the formatted field will be appended.</param>
+    /// <param name="label">The label text to display for the field. Cannot be null.</param>
+    /// <param name="value">The value text to display for the field. Cannot be null.</param>
+    /// <param name="labelWidth">The minimum width, in characters, to use for the label column. Must be non-negative. The default is 9.</param>
+    /// <param name="indent">An optional string to prepend to each line for indentation. The default is an empty string.</param>
     private static void AppendField(StringBuilder sb, string label, string value, int labelWidth = 9, string indent = "")
     {
         foreach (var line in WrapField(label, value, labelWidth, indent))
@@ -199,6 +224,15 @@ public readonly record struct LogEnvelope
 
     #endregion
 
+    /// <summary>
+    /// Returns a formatted string representation of the log entry, including timestamp, severity, message, source
+    /// information, and exception details if present.
+    /// </summary>
+    /// <remarks>The returned string is suitable for display in logs or diagnostic outputs. Exception
+    /// information is included up to a depth of 10 inner exceptions. Source file and caller information are included if
+    /// available.</remarks>
+    /// <returns>A string containing the log entry in a structured, human-readable format. If an exception is associated with the
+    /// entry, its details and stack trace are included.</returns>
     public override string ToString()
     {
         var sb = new StringBuilder();

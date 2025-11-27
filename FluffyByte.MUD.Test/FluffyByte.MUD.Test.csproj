@@ -16,6 +16,7 @@
 
   <ItemGroup>
     <ProjectReference Include="..\FluffyByte.MUD.Driver\FluffyByte.MUD.Driver.csproj" />
+    <ProjectReference Include="..\FluffyByte.MUD.Library\FluffyByte.MUD.Library.csproj" />
   </ItemGroup>
 
   <ItemGroup>

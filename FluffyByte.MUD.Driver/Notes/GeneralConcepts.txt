@@ -1,3 +1,5 @@
 ﻿DateTime Notes:
 Always prefer to use times in Utc so there's no need to worry about DST.
 
+NetworkDaemon - The network daemon controls the switchboard, routes messages, and manages connections.
+Switchboard - The switchboard is the interface that the network daemon uses to send and receive messages to clients.

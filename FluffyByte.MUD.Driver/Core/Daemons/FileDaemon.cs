@@ -158,7 +158,7 @@ public static class FileDaemon
     #region Heartbeats (Ticks)
     private static Task SystemFastTick(long _)
     {
-        return FlushQueue.CheckFlush();
+        return FlushQueue.CheckFlush(FilePriority.SystemFast);
     }
 
     private static Task SystemSlowTick(long _)
@@ -167,12 +167,11 @@ public static class FileDaemon
         _cacheSlow?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
         _cacheGame?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
 
-        return FlushQueue.CheckFlush();
+        return FlushQueue.CheckFlush(FilePriority.SystemSlow);
     }
-
     private static Task GameTick(long _)
     {
-        return FlushQueue.CheckFlush();
+        return FlushQueue.CheckFlush(FilePriority.Game);
     }
     #endregion
 
@@ -411,7 +410,7 @@ public static class FileDaemon
         /// <summary>
         /// Returns an enumerable collection containing all file entries and their associated keys.
         /// </summary>
-        /// <returns>An <see cref="IEnumerable{T}"/> of <see cref="KeyValuePair{string, FileEntry}"/> objects representing all
+        /// <returns>An <see cref="IEnumerable{T}"/> of <see cref="KeyValuePair{TKey, TValue}"/> objects representing all
         /// stored file entries. The collection may be empty if no entries exist.</returns>
         internal IEnumerable<KeyValuePair<string, FileEntry>> GetAll()
            => entries;
@@ -433,8 +432,9 @@ public static class FileDaemon
         private static readonly ConcurrentDictionary<string, byte> _low = new();
         private static readonly ConcurrentDictionary<string, byte> _game = new();
 
-        private const int FlushThresholdBytes = 10 * 1024 * 1024;
-        private static long _queuedBytes;
+        private static long _queuedBytesHigh;
+        private static long _queuedBytesLow;
+        private static long _queuedBytesGame;
 
         /// <summary>
         /// Marks the specified file path as dirty, indicating that it requires processing at the given priority level.
@@ -449,7 +449,10 @@ public static class FileDaemon
                 return;
 
             if (GetCache(priority).TryGetValue(path, out FileEntry? entry) && entry != null)
-                Interlocked.Add(ref _queuedBytes, entry.SizeBytes);
+            {
+                ref long queuedBytes = ref GetQueuedBytesRef(priority);
+                Interlocked.Add(ref queuedBytes, entry.SizeBytes);
+            }
         }
 
         /// <summary>
@@ -469,6 +472,13 @@ public static class FileDaemon
             return GetQueue(priority).Keys;
         }
 
+        /// <summary>
+        /// Retrieves the queue associated with the specified file priority.
+        /// </summary>
+        /// <param name="priority">The priority level for which to retrieve the corresponding queue. Must be a defined value of <see
+        /// cref="FilePriority"/>.</param>
+        /// <returns>A <see cref="ConcurrentDictionary{TKey, TValue}"/> representing the queue for the specified priority.</returns>
+        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a recognized value of <see cref="FilePriority"/>.</exception>
         private static ConcurrentDictionary<string, byte> GetQueue(FilePriority priority)
         {
             return priority switch
@@ -480,6 +490,14 @@ public static class FileDaemon
             };
         }
 
+        /// <summary>
+        /// Retrieves the cache instance associated with the specified file priority.
+        /// </summary>
+        /// <param name="priority">The file priority for which to obtain the corresponding cache. Must be a defined value of <see
+        /// cref="FilePriority"/>.</param>
+        /// <returns>The <see cref="Cache"/> instance that matches the specified file priority.</returns>
+        /// <exception cref="NullReferenceException">Thrown if the cache instance for the specified priority has not been initialized.</exception>
+        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a recognized value of <see cref="FilePriority"/>.</exception>
         private static Cache GetCache(FilePriority priority)
         {
             return priority switch
@@ -512,6 +530,14 @@ public static class FileDaemon
                 + SumSizes(_game.Keys, _cacheGame);
         }
 
+        /// <summary>
+        /// Calculates the total size, in bytes, of all cache entries corresponding to the specified keys.
+        /// </summary>
+        /// <param name="keys">A collection of keys identifying the cache entries whose sizes will be summed. Only keys present in the
+        /// cache are considered.</param>
+        /// <param name="cache">The cache instance containing the entries to be evaluated.</param>
+        /// <returns>The sum of the sizes, in bytes, of all cache entries found for the specified keys. Returns 0 if none of the
+        /// keys are present in the cache.</returns>
         private static long SumSizes(IEnumerable<string> keys, Cache cache)
         {
             long sum = 0;
@@ -526,22 +552,46 @@ public static class FileDaemon
         }
 
         /// <summary>
-        /// Checks the state of internal file caches and flushes them if necessary.
+        /// Checks the state of a specific priority queue and flushes it if necessary.
         /// </summary>
-        /// <remarks>This method flushes all file caches if the threshold is exceeded.
-        /// This method is intended for internal use and may be called concurrently.</remarks>
+        /// <remarks>This method flushes only the specified priority queue if its threshold is exceeded.
+        /// Each priority maintains its own flush cadence.</remarks>
+        /// <param name="priority">The priority queue to check and potentially flush.</param>
         /// <returns>A task that represents the asynchronous flush operation.</returns>
-        internal static async Task CheckFlush()
+        internal static async Task CheckFlush(FilePriority priority)
         {
-            if (_high.IsEmpty && _game.IsEmpty && _low.IsEmpty)
-            {
-                return; // Nothing to flush
-            }
+            var queue = GetQueue(priority);
 
-            if (Interlocked.Read(ref _queuedBytes) >= FlushThresholdBytes)
+            if (queue.IsEmpty)
+                return;
+
+            if (Interlocked.Read(ref GetQueuedBytesRef(priority)) >= Constellations.FLUSHTHRESHOLD_BYTES)
             {
-                await FlushAll();
+                await FlushQueueInternal(queue, GetCache(priority));
+                Interlocked.Exchange(ref GetQueuedBytesRef(priority), 0);
             }
+        }
+
+        /// <summary>
+        /// Returns a reference to the queued bytes counter associated with the specified file priority.
+        /// </summary>
+        /// <remarks>This method enables direct modification of the queued bytes counter for the specified
+        /// priority. Use with caution, as changes to the referenced value affect global state.</remarks>
+        /// <param name="priority">The file priority for which to retrieve the queued bytes reference. Must be one of the defined values in
+        /// <see cref="FilePriority"/>.</param>
+        /// <returns>A reference to the <see langword="long"/> value representing the number of queued bytes for the given
+        /// priority.</returns>
+        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a recognized <see cref="FilePriority"/> value.</exception>
+        private static ref long GetQueuedBytesRef(FilePriority priority)
+        {
+            if (priority == FilePriority.SystemFast)
+                return ref _queuedBytesHigh;
+            if (priority == FilePriority.SystemSlow)
+                return ref _queuedBytesLow;
+            if (priority == FilePriority.Game)
+                return ref _queuedBytesGame;
+
+            throw new NotImplementedException($"Unknown priority: {priority}");
         }
 
         /// <summary>
@@ -562,9 +612,23 @@ public static class FileDaemon
             await FlushQueueInternal(_low, _cacheSlow);
             await FlushQueueInternal(_game, _cacheGame);
 
-            Interlocked.Exchange(ref _queuedBytes, 0);
+            Interlocked.Exchange(ref _queuedBytesHigh, 0);
+            Interlocked.Exchange(ref _queuedBytesLow, 0);
+            Interlocked.Exchange(ref _queuedBytesGame, 0);
         }
 
+        /// <summary>
+        /// Asynchronously flushes all pending file entries from the specified queue to disk using the provided cache.
+        /// </summary>
+        /// <remarks>Files are written to disk only if their content is available and non-empty. If a
+        /// file's version changes during the write operation, it remains in the queue for a future flush. Any errors
+        /// encountered during writing are logged, and affected files remain queued for retry.</remarks>
+        /// <param name="queue">A thread-safe dictionary containing file paths queued for flushing. Each key represents a file path to be
+        /// written.</param>
+        /// <param name="cache">The cache containing file entries to be flushed. Used to retrieve the content and version information for
+        /// each file.</param>
+        /// <returns>A task that represents the asynchronous flush operation. The task completes when all eligible files have
+        /// been processed.</returns>
         private static async Task FlushQueueInternal(
             ConcurrentDictionary<string, byte> queue,
             Cache cache)
@@ -589,8 +653,8 @@ public static class FileDaemon
                 try
                 {
                     await File.WriteAllBytesAsync(path, data, SystemDaemon.GlobalShutdownToken);
-                    
-                    if(entry.Version == currentVersion)
+
+                    if (entry.Version == currentVersion)
                     {
                         queue.TryRemove(path, out _);
                     }
