@@ -39,6 +39,12 @@ public class GameObject : IAsyncDisposable, IGameObject
 
         return ValueTask.CompletedTask;
     }
+
+    /// <summary>
+    /// Renames the current object by setting its name to the specified value.
+    /// </summary>
+    /// <param name="newName">The new name to assign to the object. Cannot be null or empty.</param>
+    public void Rename(string newName) => Name = newName;
 }
 
 /*
