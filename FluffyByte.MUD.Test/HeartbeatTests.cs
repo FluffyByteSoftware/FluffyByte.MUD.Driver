@@ -275,9 +275,9 @@ public class HeartbeatTests
 
         // Hammer TickCount from multiple threads
         var readTasks = Enumerable.Range(0, 10)
-            .Select(_ => Task.Run(() =>
+            .Select(x => Task.Run(() =>
             {
-                for (int i = 0; i < 100; i++)
+                for (var i = 0; i < 100; i++)
                 {
                     _ = (int)heartbeat.TickCount; // Should never throw
                 }

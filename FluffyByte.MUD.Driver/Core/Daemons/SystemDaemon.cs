@@ -5,8 +5,6 @@
  * Created by - Seliris
  *-------------------------------------------------------------
  */
-
-using System.Runtime.CompilerServices;
 using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
@@ -75,8 +73,6 @@ public static class SystemDaemon
             Log.Error($"Exception in RequestStart()", ex);
 
             State = DaemonStatus.Error;
-
-            return;
         }
         finally
         {
@@ -96,11 +92,11 @@ public static class SystemDaemon
 
         try
         {
-            CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(
+            var cts = CancellationTokenSource.CreateLinkedTokenSource(
                 GlobalShutdownToken
             );
 
-            await _cts.CancelAsync();
+            await cts.CancelAsync();
 
             await FileDaemon.RequestStop();
         }
@@ -113,7 +109,6 @@ public static class SystemDaemon
             Log.Error($"Execption in RequestStop()", ex);
 
             State = DaemonStatus.Error;
-            return;
         }
         finally
         {

@@ -7,7 +7,6 @@
  */
 
 using System.Collections.Concurrent;
-using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
 using FluffyByte.MUD.Driver.Core.Types.Heartbeats;
@@ -46,12 +45,15 @@ public static class FileDaemon
     /// thread-safe and can be accessed from any thread.</remarks>
     public static DaemonStatus State { get; private set; } = DaemonStatus.Stopped;
 
-    private static DateTime? _lastStartTime = null;
+    /// <summary>
+    /// Stores the last starttime of the FileDaemon.
+    /// </summary>
+    private static DateTime? _lastStartTime;
 
     /// <summary>
     /// Indicates whether block writing is currently enabled.
     /// </summary>
-    internal static bool writeBlock = false;
+    private static bool _writeBlock;
 
     /// <summary>
     /// Gets the duration for which the daemon has been running since its last start.
@@ -82,7 +84,7 @@ public static class FileDaemon
     public static async Task RequestStart()
     {
         State = DaemonStatus.Starting;
-        writeBlock = false;
+        _writeBlock = false;
 
         // Initialize caches
         _cacheFast = new Cache();
@@ -91,9 +93,9 @@ public static class FileDaemon
 
         try
         {
-            _systemFastHeartbeat = new(TimeSpan.FromSeconds(5), SystemFastTick);
-            _systemLongHeartbeat = new(TimeSpan.FromMinutes(1), SystemSlowTick);
-            _gameHeartbeat = new(TimeSpan.FromSeconds(30), GameTick);
+            _systemFastHeartbeat = new Heartbeat(TimeSpan.FromSeconds(5), SystemFastTick);
+            _systemLongHeartbeat = new Heartbeat(TimeSpan.FromMinutes(1), SystemSlowTick);
+            _gameHeartbeat = new Heartbeat(TimeSpan.FromSeconds(30), GameTick);
 
             await _systemFastHeartbeat.Start();
             await _systemLongHeartbeat.Start();
@@ -135,7 +137,7 @@ public static class FileDaemon
 
         try
         {
-            writeBlock = true;
+            _writeBlock = true;
 
             // Flush everything before stopping
             await FlushQueue.FlushAll();
@@ -189,7 +191,7 @@ public static class FileDaemon
     /// access performance and prioritization are important. File writes may be deferred and queued based on system
     /// state and priority. If a global shutdown is in progress, write operations are ignored to ensure system
     /// stability.</remarks>
-    public static class IO
+    public static class InputOutput
     {
         /// <summary>
         /// Asynchronously reads the contents of the specified file and returns its data as a byte array. If the file
@@ -206,9 +208,9 @@ public static class FileDaemon
             FilePriority priority = FilePriority.Game
         )
         {
-            if (writeBlock)
+            if (_writeBlock)
             {
-                Log.Warn($"Received a request to read {path}, but writeBlock is {writeBlock}.");
+                Log.Warn($"Received a request to read {path}, but writeBlock is {_writeBlock}.");
                 return null;
             }
 
@@ -226,8 +228,7 @@ public static class FileDaemon
             {
                 FilePriority.SystemFast => _cacheFast,
                 FilePriority.SystemSlow => _cacheSlow,
-                FilePriority.Game => _cacheGame,
-                _ => _cacheGame,
+                _=> _cacheGame
             };
 
             // Return from cache if available
@@ -259,17 +260,14 @@ public static class FileDaemon
         /// <param name="priority">The priority level to assign to the write operation. Defaults to <see cref="FilePriority.Game"/> if not
         /// specified.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
-        public static async Task Write(
-            string path,
+        public static void Write
+        (string path,
             byte[] data,
-            FilePriority priority = FilePriority.Game
-        )
+            FilePriority priority = FilePriority.Game)
         {
             if (SystemDaemon.GlobalShutdownToken.IsCancellationRequested)
             {
-                Log.Warn(
-                    $"{path} requested to write, but we are currently shutting down. Rejected."
-                );
+                Log.Warn($"{path} requested to write, but we are currently shutting down. Rejected.");
                 return;
             }
 
@@ -295,7 +293,7 @@ public static class FileDaemon
                     default:
                         Log.Error("Unknown priority in Write");
                         break;
-                }
+                }   
             }
             catch (OperationCanceledException)
             {
@@ -307,8 +305,6 @@ public static class FileDaemon
             {
                 Log.Error(ex);
                 State = DaemonStatus.Error;
-
-                return;
             }
         }
 
@@ -356,33 +352,33 @@ public static class FileDaemon
     /// <remarks>The cache uses a concurrent dictionary to ensure safe access from multiple threads. Entries
     /// can be marked as dirty to indicate that they require flushing. This class is intended for internal use and is
     /// not thread-affinitive; callers may access its members from any thread.</remarks>
-    internal class Cache
+    private class Cache
     {
         /// <summary>
         /// Provides a thread-safe collection that maps file names to their corresponding file entries.
         /// </summary>
-        internal readonly ConcurrentDictionary<string, FileEntry> entries = new();
+        private readonly ConcurrentDictionary<string, FileEntry> _entries = new();
 
         /// <summary>
         /// Attempts to retrieve the file entry associated with the specified path.
         /// </summary>
         /// <param name="path">The path of the file to locate. Cannot be null.</param>
-        /// <param name="entry">When this method returns, contains the <see cref="FileEntry"/> associated with the specified path, if found;
-        /// otherwise, <see langword="null"/>.</param>
+        /// <param name="entry">When this method returns, contains the <see cref="FileEntry"/> associated with
+        /// the specified path, if found; otherwise, <see langword="null"/>.</param>
         /// <returns>true if the file entry was found for the specified path; otherwise, false.</returns>
         internal bool TryGetValue(string path, out FileEntry? entry)
         {
-            return entries.TryGetValue(path, out entry);
+            return _entries.TryGetValue(path, out entry);
         }
 
         internal void PruneStaleEntries(TimeSpan maxAge)
         {
-            DateTime cutoff = DateTime.UtcNow - maxAge;
+            var cutoff = DateTime.UtcNow - maxAge;
 
-            foreach (var kvp in entries)
+            foreach (var kvp in _entries)
             {
-                string path = kvp.Key;
-                FileEntry entry = kvp.Value;
+                var path = kvp.Key;
+                var entry = kvp.Value;
 
                 // 1. If the file has been accessed recently, skip it.
                 if (entry.LastAccess > cutoff)
@@ -394,7 +390,7 @@ public static class FileDaemon
                     continue;
 
                 // 3. Safe to remove
-                entries.TryRemove(path, out _);
+                _entries.TryRemove(path, out _);
             }
         }
 
@@ -412,28 +408,24 @@ public static class FileDaemon
         /// <param name="priority">The priority level to assign to the file entry. Determines the order in which entries are processed.</param>
         internal void SetEntry(string path, byte[] content, bool dirty, FilePriority priority)
         {
-            FileEntry entry = entries.AddOrUpdate(
-                path,
+            var entry = _entries.AddOrUpdate(path,
                 p => new FileEntry(p, content, priority),
                 (_, existing) =>
                 {
                     existing.Update(content, priority);
                     return existing;
-                }
-            );
+                });
 
-            if (dirty)
+            if (entry.SizeBytes != content.Length)
             {
-                FlushQueue.MarkDirty(path, priority);
+                Log.Warn($"Size mismatch for {path}: {entry.SizeBytes} vs {content.Length}");
             }
-        }
-
-        /// <summary>
-        /// Returns an enumerable collection containing all file entries and their associated keys.
-        /// </summary>
-        /// <returns>An <see cref="IEnumerable{T}"/> of <see cref="KeyValuePair{TKey, TValue}"/> objects representing all
-        /// stored file entries. The collection may be empty if no entries exist.</returns>
-        internal IEnumerable<KeyValuePair<string, FileEntry>> GetAll() => entries;
+                
+            if (dirty) 
+            { 
+                FlushQueue.MarkDirty(path, priority); 
+            }
+        } 
     }
     #endregion
 
@@ -446,11 +438,11 @@ public static class FileDaemon
     /// the total size of dirty (modified but not yet flushed) files. When the queued data exceeds a defined threshold,
     /// or during explicit flush operations, it writes all pending changes to disk. This class is intended for internal
     /// use and is not thread-safe for direct manipulation of its internal state outside its provided methods.</remarks>
-    internal static class FlushQueue
+    private static class FlushQueue
     {
-        private static readonly ConcurrentDictionary<string, byte> _high = new();
-        private static readonly ConcurrentDictionary<string, byte> _low = new();
-        private static readonly ConcurrentDictionary<string, byte> _game = new();
+        private static readonly ConcurrentDictionary<string, byte> High = new();
+        private static readonly ConcurrentDictionary<string, byte> Low = new();
+        private static readonly ConcurrentDictionary<string, byte> Game = new();
 
         private static long _queuedBytesHigh;
         private static long _queuedBytesLow;
@@ -470,7 +462,7 @@ public static class FileDaemon
 
             if (GetCache(priority).TryGetValue(path, out FileEntry? entry) && entry != null)
             {
-                ref long queuedBytes = ref GetQueuedBytesRef(priority);
+                ref var queuedBytes = ref GetQueuedBytesRef(priority);
                 Interlocked.Add(ref queuedBytes, entry.SizeBytes);
             }
         }
@@ -481,7 +473,7 @@ public static class FileDaemon
         /// <param name="path">The path to check for unsaved changes. Cannot be null.</param>
         /// <returns>true if the specified path is marked as dirty in any data set; otherwise, false.</returns>
         internal static bool IsDirty(string path) =>
-            (_high.ContainsKey(path) || _low.ContainsKey(path) || _game.ContainsKey(path));
+            (High.ContainsKey(path) || Low.ContainsKey(path) || Game.ContainsKey(path));
 
         /// <summary>
         /// Gets the list of dirty file paths for a specific priority
@@ -502,9 +494,9 @@ public static class FileDaemon
         {
             return priority switch
             {
-                FilePriority.SystemFast => _high,
-                FilePriority.SystemSlow => _low,
-                FilePriority.Game => _game,
+                FilePriority.SystemFast => High,
+                FilePriority.SystemSlow => Low,
+                FilePriority.Game => Game,
                 _ => throw new NotImplementedException($"Unknown priority: {priority}"),
             };
         }
@@ -546,9 +538,9 @@ public static class FileDaemon
                 return 0;
             }
 
-            return SumSizes(_high.Keys, _cacheFast)
-                + SumSizes(_low.Keys, _cacheSlow)
-                + SumSizes(_game.Keys, _cacheGame);
+            return SumSizes(High.Keys, _cacheFast)
+                + SumSizes(Low.Keys, _cacheSlow)
+                + SumSizes(Game.Keys, _cacheGame);
         }
 
         /// <summary>
@@ -588,7 +580,7 @@ public static class FileDaemon
 
             if (
                 Interlocked.Read(ref GetQueuedBytesRef(priority))
-                >= Constellations.FLUSHTHRESHOLD_BYTES
+                >= Constellations.FlushthresholdBytes
             )
             {
                 await FlushQueueInternal(queue, GetCache(priority));
@@ -632,9 +624,9 @@ public static class FileDaemon
                 return;
             }
 
-            await FlushQueueInternal(_high, _cacheFast);
-            await FlushQueueInternal(_low, _cacheSlow);
-            await FlushQueueInternal(_game, _cacheGame);
+            await FlushQueueInternal(High, _cacheFast);
+            await FlushQueueInternal(Low, _cacheSlow);
+            await FlushQueueInternal(Game, _cacheGame);
 
             Interlocked.Exchange(ref _queuedBytesHigh, 0);
             Interlocked.Exchange(ref _queuedBytesLow, 0);

@@ -50,7 +50,7 @@ public class FileEntryTests
     {
         byte[] content = [0x01, 0x02, 0x03];
 
-        var entry = new FileEntry("/user/data.bin", content, FilePriority.Game);
+        var entry = new FileEntry("/user/data.bin", content);
 
         Assert.Equal("/user/data.bin", entry.Path);
         Assert.Equal(content, entry.Content);
@@ -73,7 +73,7 @@ public class FileEntryTests
     [Fact]
     public void Constructor_WithNullContent_SizeBytesIsZero()
     {
-        var entry = new FileEntry("/game/test.txt", null);
+        var entry = new FileEntry("/game/test.txt");
 
         Assert.Equal(0, entry.SizeBytes);
     }
@@ -122,7 +122,7 @@ public class FileEntryTests
     [Fact]
     public void Update_WithPriority_UpdatesPriority()
     {
-        var entry = new FileEntry("/game/test.txt", null, FilePriority.Game);
+        var entry = new FileEntry("/game/test.txt");
 
         entry.Update([0x01], FilePriority.SystemSlow);
 
@@ -132,7 +132,7 @@ public class FileEntryTests
     [Fact]
     public void Update_WithoutPriority_KeepsPriority()
     {
-        var entry = new FileEntry("/game/test.txt", null, FilePriority.Game);
+        var entry = new FileEntry("/game/test.txt");
 
         entry.Update([0x01]);
 
@@ -144,7 +144,7 @@ public class FileEntryTests
     {
         var entry = new FileEntry("/game/test.txt", null, FilePriority.SystemFast);
 
-        entry.Update([0x01], null);
+        entry.Update([0x01]);
 
         Assert.Equal(FilePriority.SystemFast, entry.Priority);
     }

@@ -34,7 +34,7 @@ public sealed class FluffyClient
     /// <summary>
     /// Size of the internal receive buffer in bytes.
     /// </summary>
-    private const int ReceiveBufferSize = 4096;
+    private const int RECEIVE_BUFFER_SIZE = 4096;
 
     /// <summary>
     /// Maximum number of input commands to queue per tick.
@@ -52,7 +52,7 @@ public sealed class FluffyClient
     /// Maximum size of the line buffer in characters.
     /// Prevents memory abuse from misbehaving clients.
     /// </summary>
-    private const int _maxLineBufferSize = 8192;
+    private const int MAX_LINE_BUFFER_SIZE = 8192;
 
     /// <summary>
     /// Contains the FluffyClient's underlying Tcp Socket.
@@ -62,17 +62,17 @@ public sealed class FluffyClient
     /// <summary>
     /// Gets the display name of the client instance.
     /// </summary>
-    public string Name { get; private set; } = "Unnamed Client";
+    public string Name { get; private set; }
 
     /// <summary>
     /// Gets the network address associated with this instance.
     /// </summary>
-    public string Address { get; private set; } = "0.0.0.1";
+    public string Address { get; private set; }
 
     /// <summary>
     /// Stores the Dns address of the client as a string.
     /// </summary>
-    public string DnsAddress { get; private set; } = "unknown.com";
+    public string DnsAddress { get; private set; }
 
     /// <summary>
     /// Gets or sets the current connection state of the client.
@@ -80,7 +80,7 @@ public sealed class FluffyClient
     /// <remarks>Use this property to determine whether the client is connecting, connected, disconnected, or
     /// in another defined state. The value reflects the client's most recent connection status and may change as
     /// connection attempts succeed or fail.</remarks>
-    public ClientState State { get; set; } = ClientState.Connecting;
+    public ClientState State { get; set; }
 
     /// <summary>
     /// Gets the date and time, in Coordinated Universal Time (UTC), when the connection was established.
@@ -123,7 +123,7 @@ public sealed class FluffyClient
         _lastActivityUtc = DateTime.UtcNow;
 
         _lineBuffer = new();
-        _receiveBuffer = new byte[ReceiveBufferSize];
+        _receiveBuffer = new byte[RECEIVE_BUFFER_SIZE];
 
         // Configure socket for MUD-appropriate behavior
 
@@ -276,9 +276,9 @@ public sealed class FluffyClient
                 _lineBuffer.Append(text);
 
                 // Enforce buffer size limit to prevent memory abuse
-                if (_lineBuffer.Length > _maxLineBufferSize)
+                if (_lineBuffer.Length > MAX_LINE_BUFFER_SIZE)
                 {
-                    var excess = _lineBuffer.Length - _maxLineBufferSize;
+                    var excess = _lineBuffer.Length - MAX_LINE_BUFFER_SIZE;
                     _lineBuffer.Remove(0, excess);
                 }
             }
@@ -302,9 +302,9 @@ public sealed class FluffyClient
     /// <returns>A new byte array containing the filtered data.</returns>
     private static byte[] FilterTelnetSequences(byte[] buffer, int length)
     {
-        const byte IAC = 255;
-        const byte SE = 240; // Subnegotiation End
-        const byte SB = 250; // Subnegotiation Begin
+        const byte iac = 255;
+        const byte se = 240; // Subnegotiation End
+        const byte sb = 250; // Subnegotiation Begin
 
         var result = new byte[length];
         var resultIndex = 0;
@@ -312,27 +312,27 @@ public sealed class FluffyClient
 
         while (i < length)
         {
-            if (buffer[i] == IAC && i + 1 < length)
+            if (buffer[i] == iac && i + 1 < length)
             {
                 var command = buffer[i + 1];
 
-                if (command == IAC)
+                if (command == iac)
                 {
-                    result[resultIndex++] = IAC;
+                    result[resultIndex++] = iac;
                     i += 2;
                 }
-                else if (command == SB)
+                else if (command == sb)
                 {
                     // Subnegotiation: skip until IAC SE
                     i += 2;
-                    while (i + 1 < length && !(buffer[i] == IAC && buffer[i + 1] == SE))
+                    while (i + 1 < length && !(buffer[i] == iac && buffer[i + 1] == se))
                     {
                         i++;
                     }
 
                     i += 2; // Skip the IAC SE
                 }
-                else if (command >= 251 && command <= 254)
+                else if (command is >= 251 and <= 254)
                 {
                     // WILL (251), WONT (252), DO (253), DONT (254)
                     // These are 3-byte sequences: IAC + command + option
@@ -408,28 +408,27 @@ public sealed class FluffyClient
         _disposed = true;
         State = ClientState.Disconnected;
 
-        if (_socket != null)
+        if (_socket == null) return;
+        
+        try
         {
-            try
+            if (_socket.Connected)
             {
-                if (_socket.Connected)
-                {
-                    _socket.Shutdown(SocketShutdown.Both);
-                }
+                _socket.Shutdown(SocketShutdown.Both);
             }
-            catch (SocketException)
-            {
-                // Ignore shutdown errors
-            }
-            catch (Exception ex)
-            {
-                Log.Error(ex);
-            }
-            finally
-            {
-                _socket.Dispose();
-                _socket = null;
-            }
+        }
+        catch (SocketException)
+        {
+            // Ignore shutdown errors
+        }
+        catch (Exception ex)
+        {
+            Log.Error(ex);
+        }
+        finally
+        {
+            _socket.Dispose();
+            _socket = null;
         }
     }
 }

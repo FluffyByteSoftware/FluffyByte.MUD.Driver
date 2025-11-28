@@ -29,17 +29,16 @@ public static class Program
         if(args.Length > 0)
         {
             Console.WriteLine($"Args: {args}");
-            
         }
 
-        Log.Info($"{Constellations.DRIVER_NAME} starting up...");
+        Log.Info($"{Constellations.DriverName} starting up...");
         
         Thread.Sleep(millisecondsTimeout:1000);
 
         await SystemDaemon.RequestStart();
-
-
-        var fileData = await FileDaemon.IO.Read(@"E:\Temp\test.txt", FilePriority.SystemFast);
+        
+        // Store some data
+        var fileData = await FileDaemon.InputOutput.Read(@"E:\Temp\test.txt", FilePriority.SystemFast);
 
         if(fileData == null || fileData.Length == 0)
         {
@@ -56,10 +55,9 @@ public static class Program
         
         var writeThis = Encoding.UTF8.GetBytes(messageToEncode);
         
-        await FileDaemon.IO.Write(@"E:\Temp\test.txt", writeThis, FilePriority.SystemFast);
-
+        FileDaemon.InputOutput.Write(@"E:\Temp\test.txt", writeThis, FilePriority.SystemFast);
+        
         Console.WriteLine($"{SystemDaemon.RequestStatus()}");
-
         Console.ReadLine();
 
         await SystemDaemon.RequestStop();

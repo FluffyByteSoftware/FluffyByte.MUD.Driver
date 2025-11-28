@@ -7,7 +7,6 @@
  */
 
 using FluffyByte.MUD.Driver.FluffyTools;
-using Xunit;
 
 namespace FluffyByte.MUD.Test;
 

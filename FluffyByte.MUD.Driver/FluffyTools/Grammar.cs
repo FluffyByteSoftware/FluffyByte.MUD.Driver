@@ -20,7 +20,7 @@ namespace FluffyByte.MUD.Driver.FluffyTools;
 /// comma-separated lists with proper conjunctions, and applying capitalization or title case. All methods are
 /// thread-safe and can be used without instantiating the class. These utilities are useful for generating grammatically
 /// correct text in applications such as games, reporting tools, or user interfaces.</remarks>
-public static partial class Grammar
+public static class Grammar
 {
     #region Articles
     /// <summary>
@@ -28,7 +28,7 @@ public static partial class Grammar
     /// </summary>
     /// <remarks>Includes both uppercase and lowercase English vowels. This set can be used to determine
     /// whether a character is a vowel in contexts such as text processing or linguistic analysis.</remarks>
-    private static readonly HashSet<char> _vowels =
+    private static readonly HashSet<char> Vowels =
         [
             'a',
             'e',
@@ -50,7 +50,7 @@ public static partial class Grammar
     /// <remarks>This collection is used to identify exceptions to standard article usage rules when
     /// determining whether to use "a" or "an" before a word. The set includes common words such as "one", "university",
     /// and "European".</remarks>
-    private static readonly HashSet<string> _anExceptions =
+    private static readonly HashSet<string> AnExceptions =
         [
             "one", "once", "united", "unique", "unicorn", "union", "unit", "universe",
             "universal", "university", "uniform", "unison", "uranium", "urine", "usable",
@@ -66,7 +66,7 @@ public static partial class Grammar
     /// <remarks>This set includes words where the initial 'h' is silent, resulting in the use of 'an' instead
     /// of 'a' (e.g., 'an hour', 'an honest person'). The collection can be used to determine article usage in text
     /// processing or grammar correction scenarios.</remarks>
-    private static readonly HashSet<string> _aExceptions =
+    private static readonly HashSet<string> AExceptions =
         [
             "heir", "honest", "honor", "honour", "hour", "hourly", "herb"
         ];
@@ -97,13 +97,13 @@ public static partial class Grammar
                 throw new NullReferenceException(nameof(firstWord));
             }
 
-            if (_anExceptions.Any(e => firstWord.StartsWith(e)))
+            if (AnExceptions.Any(e => firstWord.StartsWith(e)))
                 return "a";
 
-            if (_aExceptions.Any(e => firstWord.StartsWith(e)))
+            if (AExceptions.Any(e => firstWord.StartsWith(e)))
                 return "an";
 
-            return _vowels.Contains(word[0]) ? "an" : "a";
+            return Vowels.Contains(word[0]) ? "an" : "a";
         }
         catch (Exception ex)
         {
@@ -129,7 +129,7 @@ public static partial class Grammar
     /// <param name="word">The word to be prefixed with a capitalized article. Cannot be null or empty.</param>
     /// <returns>A string containing the capitalized article followed by the specified word, separated by a space.</returns>
     public static string WithArticleCapitalized(string word)
-        => $"{WithArticleCapitalized(Article(word))} {word}";
+        => $"{Capitalize(Article(word))} {word}";
     #endregion
 
     #region Pluralization
@@ -140,7 +140,7 @@ public static partial class Grammar
     /// words of Latin or Greek origin. The mapping is case-insensitive, ensuring consistent pluralization regardless of
     /// input casing. Use this collection to look up the plural form of a singular noun when standard pluralization
     /// rules do not apply.</remarks>
-    private static readonly Dictionary<string, string> _irregularPlurals = new(StringComparer.OrdinalIgnoreCase)
+    private static readonly Dictionary<string, string> IrregularPlurals = new(StringComparer.OrdinalIgnoreCase)
     {
         // People
         ["man"] = "men",
@@ -220,7 +220,7 @@ public static partial class Grammar
     /// <remarks>This dictionary is used to handle exceptions to standard pluralization rules, enabling
     /// accurate conversion of irregular plurals to singular words. The keys represent plural forms, and the values
     /// represent their corresponding singular forms.</remarks>
-    private static readonly Dictionary<string, string> _irregularSingulars;
+    private static readonly Dictionary<string, string> IrregularSingulars;
 
     /// <summary>
     /// Initializes static data for the Grammar class, including mappings for irregular singular and plural forms.
@@ -230,11 +230,11 @@ public static partial class Grammar
     /// Grammar class are accessed.</remarks>
     static Grammar()
     {
-        _irregularSingulars = new(StringComparer.OrdinalIgnoreCase);
+        IrregularSingulars = new(StringComparer.OrdinalIgnoreCase);
 
-        foreach (var kvp in _irregularPlurals)
+        foreach (var kvp in IrregularPlurals)
         {
-            _irregularSingulars.TryAdd(kvp.Value, kvp.Key);
+            IrregularSingulars.TryAdd(kvp.Value, kvp.Key);
         }
     }
 
@@ -253,7 +253,7 @@ public static partial class Grammar
             return noun;
 
         // Check irregular pronouns
-        if (_irregularPlurals.TryGetValue(noun, out string? irregular))
+        if (IrregularPlurals.TryGetValue(noun, out string? irregular))
             return MatchCase(noun, irregular);
 
         string lower = noun.ToLowerInvariant();
@@ -262,7 +262,7 @@ public static partial class Grammar
             || lower.EndsWith("ch") || lower.EndsWith("sh"))
             return noun + "es";
 
-        if (lower.EndsWith('y') && noun.Length > 1 && !_vowels.Contains(noun[^2]))
+        if (lower.EndsWith('y') && noun.Length > 1 && !Vowels.Contains(noun[^2]))
             return noun[..^1] + "ies";
 
         if (lower.EndsWith('f'))
@@ -271,7 +271,7 @@ public static partial class Grammar
         if (lower.EndsWith("fe"))
             return noun[..^2] + "ves";
 
-        if (lower.EndsWith('o') && noun.Length > 1 && !_vowels.Contains(noun[^2]))
+        if (lower.EndsWith('o') && noun.Length > 1 && !Vowels.Contains(noun[^2]))
             return noun + "es";
 
         return noun + "s";
@@ -290,7 +290,7 @@ public static partial class Grammar
         if (string.IsNullOrWhiteSpace(noun))
             return noun;
 
-        if (_irregularSingulars.TryGetValue(noun, out string? irregular))
+        if (IrregularSingulars.TryGetValue(noun, out string? irregular))
             return MatchCase(noun, irregular);
 
         string lower = noun.ToLowerInvariant();
@@ -402,7 +402,7 @@ public static partial class Grammar
     /// <summary>
     /// Provides the English word representations for the numbers zero through nineteen.
     /// </summary>
-    private static readonly string[] _ones =
+    private static readonly string[] Ones =
         [
             "zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine",
             "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen",
@@ -415,7 +415,7 @@ public static partial class Grammar
     /// <remarks>The array is indexed such that the value at index 2 corresponds to "twenty", index 3 to
     /// "thirty", and so on up to index 9 for "ninety". The first two elements are empty strings to align the indices
     /// with their numeric values.</remarks>
-    private static readonly string[] _tens =
+    private static readonly string[] Tens =
         [
             "", "", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety"
         ];
@@ -434,38 +434,38 @@ public static partial class Grammar
             return $"negative {NumberToWords(-number)}";
 
         if (number < 20)
-            return _ones[number];
+            return Ones[number];
 
         if(number < 100)
         {
             int remainder = number % 10;
             return remainder == 0
-                ? _tens[number / 10]
-                : $"{_tens[number / 10]}-{_ones[remainder]}";
+                ? Tens[number / 10]
+                : $"{Tens[number / 10]}-{Ones[remainder]}";
         }
 
         if(number < 1000)
         {
             int remainder = number % 100;
             return remainder == 0
-                ? $"{_ones[number / 100]} hundred"
-                : $"{_ones[number / 100]} hundred and {NumberToWords(remainder)}";
+                ? $"{Ones[number / 100]} hundred"
+                : $"{Ones[number / 100]} hundred and {NumberToWords(remainder)}";
         }
 
         if(number < 1000000)
         {
             int remainder = number % 1000;
             return remainder == 0
-                ? $"{_ones[number / 1000]} thousand"
-                : $"{_ones[number / 1000]} thousand and {NumberToWords(remainder)}";
+                ? $"{Ones[number / 1000]} thousand"
+                : $"{Ones[number / 1000]} thousand and {NumberToWords(remainder)}";
         }
 
         if(number < 1000000000)
         {
             int remainder = number % 1000000;
             return remainder == 0
-                ? $"{_ones[number / 1000000]} million"
-                : $"{_ones[number / 1000000]} million and {NumberToWords(remainder)}";
+                ? $"{Ones[number / 1000000]} million"
+                : $"{Ones[number / 1000000]} million and {NumberToWords(remainder)}";
         }
 
         return number.ToString("N0");
@@ -783,7 +783,7 @@ public static partial class Grammar
             || lower.EndsWith("ch") || lower.EndsWith("sh") || lower.EndsWith('o'))
             return verb + "es";
 
-        if (lower.EndsWith('y') && verb.Length > 1 && !_vowels.Contains(verb[^2]))
+        if (lower.EndsWith('y') && verb.Length > 1 && !Vowels.Contains(verb[^2]))
             return verb[..^1] + "ies";
 
         return verb + "s";

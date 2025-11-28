@@ -26,7 +26,7 @@ public sealed class Heartbeat(TimeSpan interval, Func<long, Task> onTickAsync) :
     private PeriodicTimer? _timer;
     private readonly Func<long, Task> _onTickAsync = onTickAsync;
     private Task? _loopTask;
-    private long _tickCount = 0;
+    private long _tickCount;
     private TimeSpan _timeSinceLastTick = TimeSpan.MinValue;
     private readonly TimeSpan _interval = interval;
 
@@ -49,7 +49,7 @@ public sealed class Heartbeat(TimeSpan interval, Func<long, Task> onTickAsync) :
     /// </summary>
     public ValueTask Start()
     {
-        // Initialize timer before starting loop — eliminates race
+        // Initialize timer before starting loop ï¿½ eliminates race
         _timer = new PeriodicTimer(_interval);
 
         // Start loop after timer is valid

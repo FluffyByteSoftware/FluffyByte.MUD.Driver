@@ -5,9 +5,6 @@
  * Created by - Seliris
  *-------------------------------------------------------------
  */
-
-using System.Text;
-
 namespace FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
 
 /// <summary>
@@ -37,7 +34,7 @@ public sealed class FileEntry(string path,
     /// <summary>
     /// Gets the current version number associated with the instance.
     /// </summary>
-    public long Version { get; private set; } = 0;
+    public long Version { get; private set; }
 
     /// <summary>
     /// Gets the priority level assigned to the file.
