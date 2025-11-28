@@ -58,8 +58,8 @@ public static class FileDaemon
     /// <summary>
     /// Gets the duration for which the daemon has been running since its last start.
     /// </summary>
-    /// <remarks>If the daemon is not running or has never been started, the value is <see
-    /// cref="TimeSpan.Zero"/>.</remarks>
+    /// <remarks>If the daemon is not running or has never been started, the value
+    /// is <see cref="TimeSpan.Zero"/>.</remarks>
     public static TimeSpan Uptime
     {
         get
@@ -77,7 +77,7 @@ public static class FileDaemon
     /// <summary>
     /// Initiates the startup sequence for the daemon asynchronously, transitioning its state to running if successful.
     /// </summary>
-    /// <remarks>If the startup process is canceled or encounters an error, the daemon state is set to stopped
+    /// <remarks>If the startup process is canceled or encounters an error, the daemon state is designated as stopped
     /// or error, respectively. This method should be called before performing operations that require the daemon to be
     /// running.</remarks>
     /// <returns>A task that represents the asynchronous operation of starting the daemon.</returns>
@@ -125,7 +125,8 @@ public static class FileDaemon
     /// <remarks>If an error occurs while stopping the heartbeat timers, the daemon state is set to error and
     /// the operation is aborted. The method should be called when a controlled stop of the daemon is
     /// required.</remarks>
-    /// <returns>A task that represents the asynchronous stop operation. The task completes when all heartbeat timers have been
+    /// <returns>A task that represents the asynchronous stop operation. The task completes when all
+    /// heartbeat timers have been
     /// stopped.</returns>
     /// <exception cref="NullReferenceException">Thrown if any of the required heartbeat timers are null.</exception>
     public static async Task RequestStop()
@@ -202,13 +203,11 @@ public static class FileDaemon
     public static class InputOutput
     {
         /// <summary>
-        /// Adds the current input received from the specified file path to the cache with a given priority.
+        /// Asynchronously reads the contents of the specified file and returns a byte array containing the data.
         /// </summary>
-        /// <param name="path">File path to read from.</param>
-        /// <param name="priority">Priority level for caching the file content.
-        /// Defaults to <see cref="FilePriority.Game"/>.</param>
-        /// <returns>A byte array containing the contents of the file, or <see langword="null"/>
-        /// if the file does not exist.</returns>
+        /// <param name="path">Path to the file to read</param>
+        /// <param name="priority">Which cache or queue priority to load this to</param>
+        /// <returns>A byte array of file contents.</returns>
         public static async Task<byte[]?> Read(string path, FilePriority priority = FilePriority.Game)
         {
             if (_writeBlock)
@@ -258,9 +257,12 @@ public static class FileDaemon
         /// </summary>
         /// <remarks>If a global shutdown is in progress, the write operation will be rejected and no data
         /// will be written.</remarks>
-        /// <param name="path">The path where the data will be written. This should be a valid file system path.</param>
-        /// <param name="data">The byte array containing the data to write to the specified path. Cannot be null.</param>
-        /// <param name="priority">The priority level to assign to the write operation. Defaults to <see cref="FilePriority.Game"/> if not
+        /// <param name="path">The path where the data will be written. This should be a valid file
+        /// ystem path.</param>
+        /// <param name="data">The byte array containing the data to write to the specified path.
+        /// Cannot be null.</param>
+        /// <param name="priority">The priority level to assign to the write operation.
+        /// Defaults to <see cref="FilePriority.Game"/> if not
         /// specified.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
         public static void Write
@@ -314,7 +316,8 @@ public static class FileDaemon
         /// <summary>
         /// Calculates the total number of bytes currently pending to be flushed in the queue.
         /// </summary>
-        /// <returns>The number of bytes that have not yet been flushed. Returns 0 if there are no pending bytes.</returns>
+        /// <returns>The number of bytes that have not yet been flushed. Returns 0 if there are no pending
+        /// bytes.</returns>
         public static long SizeUp()
         {
             return FlushQueue.CalculateDirtyBytes();
@@ -324,8 +327,8 @@ public static class FileDaemon
         /// Returns a formatted string listing the names of files that are currently queued to be written.
         /// </summary>
         /// <remarks>The returned string lists all file names present in the dirty queues.</remarks>
-        /// <returns>A comma-separated string containing the names of files waiting to be written. If no files are queued,
-        /// returns a message indicating no files are waiting.</returns>
+        /// <returns>A comma-separated string containing the names of files waiting to be written. If no files
+        /// are queued, returns a message indicating no files are waiting.</returns>
         public static string FilesWaitingToWrite()
         {
             if (_cacheFast == null || _cacheGame == null || _cacheSlow == null)
@@ -343,7 +346,7 @@ public static class FileDaemon
             if (allDirtyFiles.Count == 0)
                 return "No files waiting to write.";
 
-            return Grammar.ToCommaList(allDirtyFiles);
+            return allDirtyFiles.ToCommaList();
         }
     }
     #endregion
@@ -405,10 +408,12 @@ public static class FileDaemon
         /// updated. Marking an entry as dirty may trigger additional processing, such as flushing changes to persistent
         /// storage.</remarks>
         /// <param name="path">The path of the file entry to add or update. Cannot be null or empty.</param>
-        /// <param name="content">The byte array containing the content to associate with the file entry. Cannot be null.</param>
-        /// <param name="dirty">A value indicating whether the entry should be marked as dirty for subsequent processing. If <see
-        /// langword="true"/>, the entry is flagged for flushing.</param>
-        /// <param name="priority">The priority level to assign to the file entry. Determines the order in which entries are processed.</param>
+        /// <param name="content">The byte array containing the content to associate with the file entry.
+        /// Cannot be null.</param>
+        /// <param name="dirty">A value indicating whether the entry should be marked as dirty for later
+        /// processing. If <see langword="true"/>, the entry is flagged for flushing.</param>
+        /// <param name="priority">The priority level to assign to the file entry. Determines the order in which
+        /// entries are processed.</param>
         internal void SetEntry(string path, byte[] content, bool dirty, FilePriority priority)
         {
             var entry = _entries.AddOrUpdate(path,
@@ -455,7 +460,8 @@ public static class FileDaemon
         /// Marks the specified file path as dirty, indicating that it requires processing at the given priority level.
         /// </summary>
         /// <param name="path">The file system path to be marked as dirty. Cannot be null or empty.</param>
-        /// <param name="priority">The priority level to assign to the dirty file path. Determines the processing order.</param>
+        /// <param name="priority">The priority level to assign to the dirty file path. Determines
+        /// the processing order.</param>
         internal static void MarkDirty(string path, FilePriority priority)
         {
             var queue = GetQueue(priority);
@@ -489,10 +495,12 @@ public static class FileDaemon
         /// <summary>
         /// Retrieves the queue associated with the specified file priority.
         /// </summary>
-        /// <param name="priority">The priority level for which to retrieve the corresponding queue. Must be a defined value of <see
-        /// cref="FilePriority"/>.</param>
-        /// <returns>A <see cref="ConcurrentDictionary{TKey, TValue}"/> representing the queue for the specified priority.</returns>
-        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a recognized value of <see cref="FilePriority"/>.</exception>
+        /// <param name="priority">The priority level for which to retrieve the corresponding queue.
+        /// Must be a defined value of <see cref="FilePriority"/>.</param>
+        /// <returns>A <see cref="ConcurrentDictionary{TKey, TValue}"/> representing the queue
+        /// for the specified priority.</returns>
+        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is
+        /// not a recognized value of <see cref="FilePriority"/>.</exception>
         private static ConcurrentDictionary<string, byte> GetQueue(FilePriority priority)
         {
             return priority switch
@@ -507,11 +515,13 @@ public static class FileDaemon
         /// <summary>
         /// Retrieves the cache instance associated with the specified file priority.
         /// </summary>
-        /// <param name="priority">The file priority for which to obtain the corresponding cache. Must be a defined value of <see
-        /// cref="FilePriority"/>.</param>
+        /// <param name="priority">The file priority for which to acquire the corresponding cache.
+        /// Must be a defined value of <see cref="FilePriority"/>.</param>
         /// <returns>The <see cref="Cache"/> instance that matches the specified file priority.</returns>
-        /// <exception cref="NullReferenceException">Thrown if the cache instance for the specified priority has not been initialized.</exception>
-        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a recognized value of <see cref="FilePriority"/>.</exception>
+        /// <exception cref="NullReferenceException">Thrown if the cache instance for the specified
+        /// priority has not been initialized.</exception>
+        /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a
+        /// recognized value of <see cref="FilePriority"/>.</exception>
         private static Cache GetCache(FilePriority priority)
         {
             return priority switch
@@ -532,7 +542,8 @@ public static class FileDaemon
         /// <remarks>This method aggregates the sizes of file entries found in multiple internal cache
         /// dictionaries. The result reflects the current state of the cache and may change as entries are added or
         /// removed.</remarks>
-        /// <returns>The total size, in bytes, of all dirty cached file entries. Returns 0 if no entries are dirty.</returns>
+        /// <returns>The total size, in bytes, of all dirty cached file entries. Returns 0 if
+        /// no entries are dirty.</returns>
         internal static long CalculateDirtyBytes()
         {
             if (_cacheFast is null || _cacheSlow is null || _cacheGame is null)
@@ -549,11 +560,11 @@ public static class FileDaemon
         /// <summary>
         /// Calculates the total size, in bytes, of all cache entries corresponding to the specified keys.
         /// </summary>
-        /// <param name="keys">A collection of keys identifying the cache entries whose sizes will be summed. Only keys present in the
-        /// cache are considered.</param>
+        /// <param name="keys">A collection of keys identifying the cache entries whose sizes will be summed.
+        /// Only keys present in the cache are considered.</param>
         /// <param name="cache">The cache instance containing the entries to be evaluated.</param>
-        /// <returns>The sum of the sizes, in bytes, of all cache entries found for the specified keys. Returns 0 if none of the
-        /// keys are present in the cache.</returns>
+        /// <returns>The sum of the sizes, in bytes, of all cache entries found for the specified keys.
+        /// Returns 0 if none of the keys are present in the cache.</returns>
         private static long SumSizes(IEnumerable<string> keys, Cache cache)
         {
             long sum = 0;
@@ -595,9 +606,9 @@ public static class FileDaemon
         /// Returns a reference to the queued bytes counter associated with the specified file priority.
         /// </summary>
         /// <remarks>This method enables direct modification of the queued bytes counter for the specified
-        /// priority. Use with caution, as changes to the referenced value affect global state.</remarks>
-        /// <param name="priority">The file priority for which to retrieve the queued bytes reference. Must be one of the defined values in
-        /// <see cref="FilePriority"/>.</param>
+        /// priority. Use with caution, as changes to the referenced value affect the global state.</remarks>
+        /// <param name="priority">The file priority for which to retrieve the queued bytes reference.
+        /// Must be one of the defined values in <see cref="FilePriority"/>.</param>
         /// <returns>A reference to the <see langword="long"/> value representing the number of queued bytes for the given
         /// priority.</returns>
         /// <exception cref="NotImplementedException">Thrown if <paramref name="priority"/> is not a recognized <see cref="FilePriority"/> value.</exception>
@@ -614,7 +625,7 @@ public static class FileDaemon
         }
 
         /// <summary>
-        /// Asynchronously flushes all pending items from the internal high, game, and low priority queues.
+        /// Asynchronously flushes all pending items from the internal high, game, and low-priority queues.
         /// </summary>
         /// <remarks>This method resets the internal queued byte count after flushing all queues. It is
         /// intended for internal use and should not be called directly from external code.</remarks>
@@ -678,13 +689,13 @@ public static class FileDaemon
                     {
                         queue.TryRemove(path, out _);
                     }
-                    // If version has changed, it means it was updated again while we were writing
+                    // If a version has changed, it means it was updated again while we were writing
                     // We'll pick it up on the next tick.
                 }
                 catch (Exception ex)
                 {
                     Log.Error($"Flush failed for {path}: {ex.Message}", ex);
-                    // File remains in queue for retry on next flush
+                    // File remains in the queue for retry on the next flush
                 }
             }
         }
