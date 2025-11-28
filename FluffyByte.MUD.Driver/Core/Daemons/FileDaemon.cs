@@ -83,6 +83,9 @@ public static class FileDaemon
     /// <returns>A task that represents the asynchronous operation of starting the daemon.</returns>
     public static async Task RequestStart()
     {
+        if (State != DaemonStatus.Stopped && State != DaemonStatus.Stopping && State != DaemonStatus.Error)
+            return;
+        
         State = DaemonStatus.Starting;
         _writeBlock = false;
 
@@ -127,6 +130,11 @@ public static class FileDaemon
     /// <exception cref="NullReferenceException">Thrown if any of the required heartbeat timers are null.</exception>
     public static async Task RequestStop()
     {
+        if (State != DaemonStatus.Running && State != DaemonStatus.Starting)
+        {
+            return;
+        }
+
         State = DaemonStatus.Stopping;
 
         if (_systemFastHeartbeat == null || _systemLongHeartbeat == null || _gameHeartbeat == null)
@@ -186,7 +194,7 @@ public static class FileDaemon
     /// <summary>
     /// Provides static methods for reading, writing, and managing file data with caching and prioritization support.
     /// </summary>
-    /// <remarks>The IO class offers asynchronous file operations that utilize an internal cache to optimize
+    /// <remarks>The IO class offers asynchronous file operations that use an internal cache to optimize
     /// access and manage write priorities. All methods are thread-safe and intended for use in scenarios where file
     /// access performance and prioritization are important. File writes may be deferred and queued based on system
     /// state and priority. If a global shutdown is in progress, write operations are ignored to ensure system
@@ -194,19 +202,15 @@ public static class FileDaemon
     public static class InputOutput
     {
         /// <summary>
-        /// Asynchronously reads the contents of the specified file and returns its data as a byte array. If the file
-        /// has been previously read and cached, returns the cached content.
+        /// Adds the current input received from the specified file path to the cache with a given priority.
         /// </summary>
-        /// <remarks>If the file is not found, the method returns <see langword="null"/> and logs a
-        /// warning. Subsequent calls for the same path may return cached data if available. The method caches the file
-        /// content after reading.</remarks>
-        /// <param name="path">The path to the file to read. Must refer to an existing file.</param>
-        /// <param name="priority">The priority to assign to the file in the cache. The default is <see cref="FilePriority.Game"/>.</param>
-        /// <returns>A byte array containing the contents of the file, or <see langword="null"/> if the file does not exist.</returns>
-        public static async Task<byte[]?> Read(
-            string path,
-            FilePriority priority = FilePriority.Game
-        )
+        /// <param name="path">File path to read from.</param>
+        /// <param name="priority">Priority level for caching the file content.
+        /// Defaults to <see cref="FilePriority.Game"/>.</param>
+        /// <returns>A byte array containing the contents of the file, or <see langword="null"/>
+        /// if the file does not exist.</returns>
+        public static async Task<byte[]?> Read(string path,
+            FilePriority priority = FilePriority.Game)
         {
             if (_writeBlock)
             {
