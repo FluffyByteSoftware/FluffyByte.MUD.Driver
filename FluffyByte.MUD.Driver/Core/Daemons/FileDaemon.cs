@@ -209,8 +209,7 @@ public static class FileDaemon
         /// Defaults to <see cref="FilePriority.Game"/>.</param>
         /// <returns>A byte array containing the contents of the file, or <see langword="null"/>
         /// if the file does not exist.</returns>
-        public static async Task<byte[]?> Read(string path,
-            FilePriority priority = FilePriority.Game)
+        public static async Task<byte[]?> Read(string path, FilePriority priority = FilePriority.Game)
         {
             if (_writeBlock)
             {
