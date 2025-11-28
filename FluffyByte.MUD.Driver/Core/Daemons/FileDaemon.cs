@@ -253,8 +253,7 @@ public static class FileDaemon
         }
 
         /// <summary>
-        /// Asynchronously writes the specified data to the given path, using the provided file priority.
-        /// </summary>
+        /// Asynchronously writes the specified data to the given path, using the provided file priority. </summary>
         /// <remarks>If a global shutdown is in progress, the write operation will be rejected and no data
         /// will be written.</remarks>
         /// <param name="path">The path where the data will be written. This should be a valid file
@@ -262,8 +261,7 @@ public static class FileDaemon
         /// <param name="data">The byte array containing the data to write to the specified path.
         /// Cannot be null.</param>
         /// <param name="priority">The priority level to assign to the write operation.
-        /// Defaults to <see cref="FilePriority.Game"/> if not
-        /// specified.</param>
+        /// Defaults to <see cref="FilePriority.Game"/> if not specified.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
         public static void Write
         (string path,

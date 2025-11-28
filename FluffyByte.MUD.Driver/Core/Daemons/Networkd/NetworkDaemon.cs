@@ -6,7 +6,7 @@
  *-------------------------------------------------------------
  */
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.Networkd;
+namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
 
 /// <summary>
 /// Networkd handles all network related operations, through various subroutines and helpers.
@@ -22,20 +22,20 @@ public static class NetworkDaemon
     /// The TcpWorker handles listening for TCP Connections.
     /// It will pass authenticated connections to the Switchboard for further processing.
     /// </summary>
-    public static TcpWorker TcpWorker { get; private set; }
+    private static readonly TcpWorker TcpWorker;
 
     /// <summary>
-    ///
+    /// The switchboard handles routing messages from the game to the appropriate client.
     /// </summary>
     public static Switchboard Switchboard { get; private set; }
 
     /// <summary>
-    /// Constructor for networkd
+    /// Constructor for the network daemon
     /// </summary>
     static NetworkDaemon()
     {
-        TcpWorker = new();
-        Switchboard = new();
+        TcpWorker = new TcpWorker();
+        Switchboard = new Switchboard();
     }
 
     /// <summary>
@@ -44,6 +44,7 @@ public static class NetworkDaemon
     public static async ValueTask RequestStart()
     {
         await TcpWorker.RequestStart();
+        await Switchboard.RequestStart();
     }
 }
 /*------------------------------------------------------------

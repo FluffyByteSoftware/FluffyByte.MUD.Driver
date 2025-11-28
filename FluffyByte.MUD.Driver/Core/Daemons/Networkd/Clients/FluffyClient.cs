@@ -11,7 +11,7 @@ using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons.Networking;
 using FluffyByte.MUD.Driver.FluffyTools;
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.Networkd.Clients;
+namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD.Clients;
 
 /// <summary>
 /// The FluffyClient is essentially the wrapper around the underlying Tcp Socket (Socket)
