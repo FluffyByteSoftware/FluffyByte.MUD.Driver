@@ -21,7 +21,6 @@ public sealed class TcpWorker
     private IPAddress _hostAddy = IPAddress.Parse(Constellations.HOST_ADDRESS);
     private int _hostPort = Constellations.HOST_PORT;
 
-    
     private CancellationTokenSource _linkedCts;
 
     /// <summary>
@@ -30,7 +29,9 @@ public sealed class TcpWorker
     public TcpWorker()
     {
         _listener = new(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(SystemDaemon.GlobalShutdownToken);
+        _linkedCts = CancellationTokenSource.CreateLinkedTokenSource(
+            SystemDaemon.GlobalShutdownToken
+        );
     }
 
     /// <summary>
@@ -38,16 +39,15 @@ public sealed class TcpWorker
     /// </summary>
     public static async ValueTask RequestStart()
     {
-        try
-        {
-
-        }
+        try { }
         catch (OperationCanceledException)
         {
-            Log.Debug($"RequestStart generated an exception but we assume its from a global shutdown.");
+            Log.Debug(
+                $"RequestStart generated an exception but we assume its from a global shutdown."
+            );
             return;
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Log.Error($"TcpWorker RequestStart generated an exception.", ex);
         }

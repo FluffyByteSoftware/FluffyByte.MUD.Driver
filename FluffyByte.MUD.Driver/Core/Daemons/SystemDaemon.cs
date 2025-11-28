@@ -32,7 +32,7 @@ public static class SystemDaemon
     /// The name of the daemon.
     /// </summary>
     public static string Name => "systemd";
-    
+
     /// <summary>
     /// Current status of the Daemon
     /// 1. Stopped
@@ -50,10 +50,11 @@ public static class SystemDaemon
     /// <returns></returns>
     public static async ValueTask RequestStart()
     {
-        if(State == DaemonStatus.Starting 
-            || State == DaemonStatus.Running)
-        { 
-            Log.Error($"Cannot start {Name} because it is already running or in the process of starting. Current State: {State}");
+        if (State == DaemonStatus.Starting || State == DaemonStatus.Running)
+        {
+            Log.Error(
+                $"Cannot start {Name} because it is already running or in the process of starting. Current State: {State}"
+            );
             return;
         }
 
@@ -69,7 +70,7 @@ public static class SystemDaemon
         {
             Log.Debug($"Operation canceled, this is expected if it's a shutdown.");
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Log.Error($"Exception in RequestStart()", ex);
 
@@ -95,7 +96,9 @@ public static class SystemDaemon
 
         try
         {
-            CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(GlobalShutdownToken);
+            CancellationTokenSource _cts = CancellationTokenSource.CreateLinkedTokenSource(
+                GlobalShutdownToken
+            );
 
             await _cts.CancelAsync();
 
@@ -105,7 +108,7 @@ public static class SystemDaemon
         {
             Log.Debug($"Operation canceled during shutdown.");
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Log.Error($"Execption in RequestStop()", ex);
 

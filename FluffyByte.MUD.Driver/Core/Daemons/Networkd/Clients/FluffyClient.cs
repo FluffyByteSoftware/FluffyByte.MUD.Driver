@@ -14,8 +14,8 @@ using FluffyByte.MUD.Driver.FluffyTools;
 namespace FluffyByte.MUD.Driver.Core.Daemons.Networkd.Clients;
 
 /// <summary>
-/// The FluffyClient is essentially the wrapper around the underlying Tcp Socket (Socket) 
-/// </summary>
+/// The FluffyClient is essentially the wrapper around the underlying Tcp Socket (Socket)
+/// /// </summary>
 public sealed class FluffyClient
 {
     private Socket? _socket;
@@ -24,6 +24,12 @@ public sealed class FluffyClient
 
     private bool _disposed;
     private DateTime _lastActivityUtc;
+
+    /// <summary>
+    /// Gets the unique identifier for this FluffyClient instance.
+    /// </summary>
+    /// <returns>A new Guid representing the unique identifier.</returns>
+    public Guid Guid { get; } = Guid.NewGuid();
 
     /// <summary>
     /// Size of the internal receive buffer in bytes.
@@ -92,16 +98,17 @@ public sealed class FluffyClient
     /// <remarks>The value is <see langword="true"/> only if the socket has not been disposed, is initialized,
     /// and is in a connected and responsive state. This property does not guarantee that the connection will remain
     /// available; network conditions may change after the value is retrieved.</remarks>
-    public bool IsConnected => !_disposed && _socket != null && _socket.Connected && IsSocketAlive();
+    public bool IsConnected =>
+        !_disposed && _socket != null && _socket.Connected && IsSocketAlive();
 
     /// <summary>
     /// Initializes a new instance of the FluffyClient class using the specified socket and network addresses.
     /// </summary>
-    /// <param name="socket">The socket to use for client communication. If null, a NullReferenceException is 
+    /// <param name="socket">The socket to use for client communication. If null, a NullReferenceException is
     /// thrown.</param>
-    /// <param name="address">The network address associated with the client. This value is used for identification 
+    /// <param name="address">The network address associated with the client. This value is used for identification
     /// and connection purposes.</param>
-    /// <param name="dnsAddress">The DNS address associated with the client. This value is used for identification 
+    /// <param name="dnsAddress">The DNS address associated with the client. This value is used for identification
     /// and connection purposes.</param>
     /// <exception cref="NullReferenceException">Thrown if <paramref name="socket"/> is null.</exception>
     public FluffyClient(Socket? socket, string address, string dnsAddress)
@@ -121,7 +128,7 @@ public sealed class FluffyClient
         // Configure socket for MUD-appropriate behavior
 
         State = ClientState.Connecting;
-        _socket.NoDelay = true;     // Disable Nagle's algorithm for responsiveness
+        _socket.NoDelay = true; // Disable Nagle's algorithm for responsiveness
         _socket.ReceiveTimeout = 0; // Non-blocking reads
         _socket.SendTimeout = 5000; // 5 second send timeout
     }
@@ -150,7 +157,7 @@ public sealed class FluffyClient
 
         // Remove the line and any trailing \r\n or \n\r combinations
         var endIndex = newlineIndex + 1;
-        if(endIndex < bufferContent.Length)
+        if (endIndex < bufferContent.Length)
         {
             var nextChar = bufferContent[endIndex];
             if ((nextChar == '\n' || nextChar == '\r') && nextChar != bufferContent[newlineIndex])
@@ -178,7 +185,7 @@ public sealed class FluffyClient
         if (string.IsNullOrEmpty(message))
             return;
 
-        if(!IsConnected || _socket == null)
+        if (!IsConnected || _socket == null)
         {
             State = ClientState.Disconnected;
             return;
@@ -189,7 +196,7 @@ public sealed class FluffyClient
             var bytes = Encoding.UTF8.GetBytes(message);
             var sent = 0;
 
-            while(sent < bytes.Length)
+            while (sent < bytes.Length)
             {
                 sent += _socket.Send(bytes, sent, bytes.Length - sent, SocketFlags.None);
             }
@@ -202,7 +209,7 @@ public sealed class FluffyClient
         {
             State = ClientState.Disconnected;
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             Log.Error(ex);
             State = ClientState.Disconnected;
@@ -246,11 +253,16 @@ public sealed class FluffyClient
 
         try
         {
-            while(_socket.Available > 0)
+            while (_socket.Available > 0)
             {
-                var bytesRead = _socket.Receive(_receiveBuffer, 0, _receiveBuffer.Length, SocketFlags.None);
+                var bytesRead = _socket.Receive(
+                    _receiveBuffer,
+                    0,
+                    _receiveBuffer.Length,
+                    SocketFlags.None
+                );
 
-                if(bytesRead == 0)
+                if (bytesRead == 0)
                 {
                     State = ClientState.Disconnected;
                     return;
@@ -264,24 +276,23 @@ public sealed class FluffyClient
                 _lineBuffer.Append(text);
 
                 // Enforce buffer size limit to prevent memory abuse
-                if(_lineBuffer.Length > _maxLineBufferSize)
+                if (_lineBuffer.Length > _maxLineBufferSize)
                 {
                     var excess = _lineBuffer.Length - _maxLineBufferSize;
                     _lineBuffer.Remove(0, excess);
                 }
             }
         }
-        catch(SocketException)
+        catch (SocketException)
         {
             State = ClientState.Disconnected;
         }
-        catch(Exception ex)
+        catch (Exception ex)
         {
             State = ClientState.Disconnected;
             Log.Error(ex);
         }
     }
-
 
     /// <summary>
     /// Filters out escape codes, and other artifacts from raw telnet data.
@@ -289,33 +300,32 @@ public sealed class FluffyClient
     /// <param name="buffer">The raw telnet data buffer.</param>
     /// <param name="length">The length of the data to filter.</param>
     /// <returns>A new byte array containing the filtered data.</returns>
-
     private static byte[] FilterTelnetSequences(byte[] buffer, int length)
     {
-        const byte IAC = 255;   
-        const byte SE = 240;    // Subnegotiation End
-        const byte SB = 250;   // Subnegotiation Begin
+        const byte IAC = 255;
+        const byte SE = 240; // Subnegotiation End
+        const byte SB = 250; // Subnegotiation Begin
 
         var result = new byte[length];
         var resultIndex = 0;
         var i = 0;
 
-        while(i < length)
+        while (i < length)
         {
             if (buffer[i] == IAC && i + 1 < length)
             {
                 var command = buffer[i + 1];
 
-                if(command == IAC)
+                if (command == IAC)
                 {
                     result[resultIndex++] = IAC;
                     i += 2;
                 }
-                else if(command == SB)
+                else if (command == SB)
                 {
                     // Subnegotiation: skip until IAC SE
                     i += 2;
-                    while(i + 1 < length && !(buffer[i] == IAC && buffer[i + 1] == SE))
+                    while (i + 1 < length && !(buffer[i] == IAC && buffer[i + 1] == SE))
                     {
                         i++;
                     }
@@ -361,7 +371,7 @@ public sealed class FluffyClient
         {
             // Poll returns true if: connection closed, data available, or error
             // if it returns true but no data is available, connection is dead
-            if(_socket.Poll(0, SelectMode.SelectRead))
+            if (_socket.Poll(0, SelectMode.SelectRead))
             {
                 return _socket.Available > 0;
             }
@@ -383,7 +393,7 @@ public sealed class FluffyClient
     private void ThrowIfDisposed()
     {
         ObjectDisposedException.ThrowIf(_disposed, nameof(FluffyClient));
-    }   
+    }
 
     /// <summary>
     /// Releases all resources used by the client and disconnects from the remote endpoint.
@@ -398,7 +408,7 @@ public sealed class FluffyClient
         _disposed = true;
         State = ClientState.Disconnected;
 
-        if(_socket != null)
+        if (_socket != null)
         {
             try
             {
@@ -411,7 +421,7 @@ public sealed class FluffyClient
             {
                 // Ignore shutdown errors
             }
-            catch(Exception ex)
+            catch (Exception ex)
             {
                 Log.Error(ex);
             }

@@ -15,7 +15,6 @@ using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Daemons;
 
-
 /// <summary>
 /// Provides static methods and properties for managing file operations and background heartbeat processing within the
 /// application daemon. Supports asynchronous start and stop operations, file reading and writing with caching, and
@@ -161,6 +160,11 @@ public static class FileDaemon
         return FlushQueue.CheckFlush(FilePriority.SystemFast);
     }
 
+    /// <summary>
+    /// The slow tick for system files
+    /// </summary>
+    /// <param name="_">The long value for the current tick count.</param>
+    /// <returns>A FlushQueue</returns>
     private static Task SystemSlowTick(long _)
     {
         _cacheFast?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
@@ -169,6 +173,7 @@ public static class FileDaemon
 
         return FlushQueue.CheckFlush(FilePriority.SystemSlow);
     }
+
     private static Task GameTick(long _)
     {
         return FlushQueue.CheckFlush(FilePriority.Game);
@@ -196,7 +201,10 @@ public static class FileDaemon
         /// <param name="path">The path to the file to read. Must refer to an existing file.</param>
         /// <param name="priority">The priority to assign to the file in the cache. The default is <see cref="FilePriority.Game"/>.</param>
         /// <returns>A byte array containing the contents of the file, or <see langword="null"/> if the file does not exist.</returns>
-        public static async Task<byte[]?> Read(string path, FilePriority priority = FilePriority.Game)
+        public static async Task<byte[]?> Read(
+            string path,
+            FilePriority priority = FilePriority.Game
+        )
         {
             if (writeBlock)
             {
@@ -206,8 +214,10 @@ public static class FileDaemon
 
             if (_cacheFast == null || _cacheSlow == null || _cacheGame == null)
             {
-                Log.Error($"One of the caches was null in Read!",
-                    new NullReferenceException($"Null reference for a cache."));
+                Log.Error(
+                    $"One of the caches was null in Read!",
+                    new NullReferenceException($"Null reference for a cache.")
+                );
                 return null;
             }
 
@@ -217,7 +227,7 @@ public static class FileDaemon
                 FilePriority.SystemFast => _cacheFast,
                 FilePriority.SystemSlow => _cacheSlow,
                 FilePriority.Game => _cacheGame,
-                _ => _cacheGame
+                _ => _cacheGame,
             };
 
             // Return from cache if available
@@ -249,11 +259,17 @@ public static class FileDaemon
         /// <param name="priority">The priority level to assign to the write operation. Defaults to <see cref="FilePriority.Game"/> if not
         /// specified.</param>
         /// <returns>A task that represents the asynchronous write operation.</returns>
-        public static async Task Write(string path, byte[] data, FilePriority priority = FilePriority.Game)
+        public static async Task Write(
+            string path,
+            byte[] data,
+            FilePriority priority = FilePriority.Game
+        )
         {
             if (SystemDaemon.GlobalShutdownToken.IsCancellationRequested)
             {
-                Log.Warn($"{path} requested to write, but we are currently shutting down. Rejected.");
+                Log.Warn(
+                    $"{path} requested to write, but we are currently shutting down. Rejected."
+                );
                 return;
             }
 
@@ -283,7 +299,9 @@ public static class FileDaemon
             }
             catch (OperationCanceledException)
             {
-                Log.Warn($"OperationCanceledException during a Write - CHECK TO SEE IF {path} is updated!");
+                Log.Warn(
+                    $"OperationCanceledException during a Write - CHECK TO SEE IF {path} is updated!"
+                );
             }
             catch (Exception ex)
             {
@@ -307,12 +325,14 @@ public static class FileDaemon
         /// Returns a formatted string listing the names of files that are currently queued to be written.
         /// </summary>
         /// <remarks>The returned string lists all file names present in the dirty queues.</remarks>
-        /// <returns>A comma-separated string containing the names of files waiting to be written. If no files are queued, 
+        /// <returns>A comma-separated string containing the names of files waiting to be written. If no files are queued,
         /// returns a message indicating no files are waiting.</returns>
         public static string FilesWaitingToWrite()
         {
             if (_cacheFast == null || _cacheGame == null || _cacheSlow == null)
-                throw new NullReferenceException("One or more caches were null in FilesWaitingToWrite");
+                throw new NullReferenceException(
+                    "One or more caches were null in FilesWaitingToWrite"
+                );
 
             List<string> allDirtyFiles = [];
 
@@ -359,7 +379,7 @@ public static class FileDaemon
         {
             DateTime cutoff = DateTime.UtcNow - maxAge;
 
-            foreach(var kvp in entries)
+            foreach (var kvp in entries)
             {
                 string path = kvp.Key;
                 FileEntry entry = kvp.Value;
@@ -399,7 +419,8 @@ public static class FileDaemon
                 {
                     existing.Update(content, priority);
                     return existing;
-                });
+                }
+            );
 
             if (dirty)
             {
@@ -412,8 +433,7 @@ public static class FileDaemon
         /// </summary>
         /// <returns>An <see cref="IEnumerable{T}"/> of <see cref="KeyValuePair{TKey, TValue}"/> objects representing all
         /// stored file entries. The collection may be empty if no entries exist.</returns>
-        internal IEnumerable<KeyValuePair<string, FileEntry>> GetAll()
-           => entries;
+        internal IEnumerable<KeyValuePair<string, FileEntry>> GetAll() => entries;
     }
     #endregion
 
@@ -460,9 +480,8 @@ public static class FileDaemon
         /// </summary>
         /// <param name="path">The path to check for unsaved changes. Cannot be null.</param>
         /// <returns>true if the specified path is marked as dirty in any data set; otherwise, false.</returns>
-        internal static bool IsDirty(string path)
-            => (_high.ContainsKey(path) || _low.ContainsKey(path) || _game.ContainsKey(path));
-        
+        internal static bool IsDirty(string path) =>
+            (_high.ContainsKey(path) || _low.ContainsKey(path) || _game.ContainsKey(path));
 
         /// <summary>
         /// Gets the list of dirty file paths for a specific priority
@@ -486,7 +505,7 @@ public static class FileDaemon
                 FilePriority.SystemFast => _high,
                 FilePriority.SystemSlow => _low,
                 FilePriority.Game => _game,
-                _ => throw new NotImplementedException($"Unknown priority: {priority}")
+                _ => throw new NotImplementedException($"Unknown priority: {priority}"),
             };
         }
 
@@ -502,10 +521,13 @@ public static class FileDaemon
         {
             return priority switch
             {
-                FilePriority.SystemFast => _cacheFast ?? throw new NullReferenceException("_cacheFast is null"),
-                FilePriority.SystemSlow => _cacheSlow ?? throw new NullReferenceException("_cacheSlow is null"),
-                FilePriority.Game => _cacheGame ?? throw new NullReferenceException("_cacheGame is null"),
-                _ => throw new NotImplementedException($"Unknown priority: {priority}")
+                FilePriority.SystemFast => _cacheFast
+                    ?? throw new NullReferenceException("_cacheFast is null"),
+                FilePriority.SystemSlow => _cacheSlow
+                    ?? throw new NullReferenceException("_cacheSlow is null"),
+                FilePriority.Game => _cacheGame
+                    ?? throw new NullReferenceException("_cacheGame is null"),
+                _ => throw new NotImplementedException($"Unknown priority: {priority}"),
             };
         }
 
@@ -524,8 +546,7 @@ public static class FileDaemon
                 return 0;
             }
 
-            return
-                  SumSizes(_high.Keys, _cacheFast)
+            return SumSizes(_high.Keys, _cacheFast)
                 + SumSizes(_low.Keys, _cacheSlow)
                 + SumSizes(_game.Keys, _cacheGame);
         }
@@ -565,7 +586,10 @@ public static class FileDaemon
             if (queue.IsEmpty)
                 return;
 
-            if (Interlocked.Read(ref GetQueuedBytesRef(priority)) >= Constellations.FLUSHTHRESHOLD_BYTES)
+            if (
+                Interlocked.Read(ref GetQueuedBytesRef(priority))
+                >= Constellations.FLUSHTHRESHOLD_BYTES
+            )
             {
                 await FlushQueueInternal(queue, GetCache(priority));
                 Interlocked.Exchange(ref GetQueuedBytesRef(priority), 0);
@@ -631,7 +655,8 @@ public static class FileDaemon
         /// been processed.</returns>
         private static async Task FlushQueueInternal(
             ConcurrentDictionary<string, byte> queue,
-            Cache cache)
+            Cache cache
+        )
         {
             if (queue.IsEmpty)
                 return;

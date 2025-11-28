@@ -13,7 +13,6 @@ namespace FluffyByte.MUD.Driver.Core.Daemons.Networkd;
 /// </summary>
 public class Switchboard
 {
-
 }
 
 /*

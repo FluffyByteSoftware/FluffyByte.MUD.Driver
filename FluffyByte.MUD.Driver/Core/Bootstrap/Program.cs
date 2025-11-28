@@ -6,7 +6,6 @@
  *-------------------------------------------------------------
  */
 
-using System.Diagnostics;
 using System.Text;
 using FluffyByte.MUD.Driver.Core.Daemons;
 using FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
@@ -20,19 +19,10 @@ namespace FluffyByte.MUD.Driver.Core.Bootstrap;
 public static class Program
 {
     /// <summary>
-    /// Gets the name of the driver component.
-    /// </summary>
-    public const string Name = "FluffyByte.MUD.Driver";
-
-    /// <summary>
-    /// Gets the current version of the application or library.
-    /// </summary>
-    public const string Version = "0.0.1a";
-
-    /// <summary>
     /// Serves as the entry point for the application.
     /// </summary>
-    /// <param name="args">An array of command-line arguments supplied to the application. Can be empty if no arguments are provided.</param>
+    /// <param name="args">An array of command-line arguments supplied to the application. Can be empty if
+    /// no arguments are provided.</param>
     /// <returns>A task that represents the asynchronous operation of the application entry point.</returns>
     public static async Task Main(string[] args)
     { 
@@ -42,14 +32,14 @@ public static class Program
             
         }
 
-        Log.Info($"{Name}.{Version} starting up...");
-
-        Thread.Sleep(1000);
+        Log.Info($"{Constellations.DRIVER_NAME} starting up...");
+        
+        Thread.Sleep(millisecondsTimeout:1000);
 
         await SystemDaemon.RequestStart();
 
 
-        byte[]? fileData = await FileDaemon.IO.Read(@"E:\Temp\test.txt", FilePriority.Game);
+        var fileData = await FileDaemon.IO.Read(@"E:\Temp\test.txt", FilePriority.SystemFast);
 
         if(fileData == null || fileData.Length == 0)
         {
@@ -57,12 +47,16 @@ public static class Program
         }
         else
         {
-            Log.DisplayFileContents(UTF8Encoding.UTF8.GetString(fileData));
+            var contents = Encoding.UTF8.GetString(fileData);
+            Log.DisplayFileContents(contents);
         }
-
-        byte[] writeThis = UTF8Encoding.UTF8.GetBytes("This is a test write at " + DateTime.UtcNow.ToString());
-
-        await FileDaemon.IO.Write(@"E:\Temp\test.txt", writeThis, FilePriority.Game);
+        
+        var timeStamp = DateTime.UtcNow.ToString("F.nnn");
+        var messageToEncode = $"This is a test write at {timeStamp}";
+        
+        var writeThis = Encoding.UTF8.GetBytes(messageToEncode);
+        
+        await FileDaemon.IO.Write(@"E:\Temp\test.txt", writeThis, FilePriority.SystemFast);
 
         Console.WriteLine($"{SystemDaemon.RequestStatus()}");
 

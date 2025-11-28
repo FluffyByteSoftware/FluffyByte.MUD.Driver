@@ -28,12 +28,11 @@ public static class NetworkDaemon
     /// </summary>
     public static TcpWorker TcpWorker { get; private set; }
 
-
     /// <summary>
-    /// 
+    ///
     /// </summary>
     public static Switchboard Switchboard { get; private set; }
-        
+
     /// <summary>
     /// Constructor for networkd
     /// </summary>
@@ -41,7 +40,6 @@ public static class NetworkDaemon
     {
         TcpWorker = new();
         Switchboard = new();
-        
     }
 
     /// <summary>
@@ -51,12 +49,8 @@ public static class NetworkDaemon
     {
         await TcpWorker.RequestStart();
     }
-
-    
 }
-
-/*
-*------------------------------------------------------------
+/*------------------------------------------------------------
 * (NetworkDaemon.cs)
 * See License.txt for licensing information.
 *-----------------------------------------------------------

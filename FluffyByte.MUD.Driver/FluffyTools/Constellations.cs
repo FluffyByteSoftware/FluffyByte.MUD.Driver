@@ -15,13 +15,17 @@ namespace FluffyByte.MUD.Driver.FluffyTools;
 /// </summary>
 public class Constellations
 {
+    /// <summary>
+    /// This constant holds the name of the Driver build.
+    /// If you modify the driver from it's original build, please rename.
+    /// </summary>
+    public const string DRIVER_NAME = "FLuffyByte.MUD.Driver";
+    
     private readonly static Lazy<Constellations> _instance = new(() => new());
     /// <summary>
     /// Singleton Instance of Constellations
     /// </summary>
     public static Constellations Instance => _instance.Value;
-
-    private readonly static string _baseDirectory = AppContext.BaseDirectory;
 
     /// <summary>
     /// Specifies the default threshold, in bytes, at which a flush operation is triggered. This value is set to 10
@@ -64,9 +68,12 @@ public class Constellations
     /// constant to access or store configuration files in a standardized location.</remarks>
     public readonly static string CONFIG_DIRECTORY = $@"{_baseDirectory}Config\";
 
+    
     private Constellations()
     {
     }
+    
+    private readonly static string _baseDirectory = AppContext.BaseDirectory;
 }
 
 /*
