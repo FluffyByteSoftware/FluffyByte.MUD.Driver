@@ -29,7 +29,9 @@ public static class FileDaemon
     /// Name of this Daemon (filed)
     /// </summary>
     public static string Name => "filed";
-
+    
+    private static CancellationTokenRegistration? _shutdownRegistration;
+    
     private static Heartbeat? _systemFastHeartbeat;
     private static Heartbeat? _systemLongHeartbeat;
     private static Heartbeat? _gameHeartbeat;
@@ -37,7 +39,7 @@ public static class FileDaemon
     private static Cache? _cacheFast;
     private static Cache? _cacheSlow;
     private static Cache? _cacheGame;
-
+    
     /// <summary>
     /// Gets the current status of the filedaemon process.
     /// </summary>
@@ -73,6 +75,10 @@ public static class FileDaemon
         }
     }
 
+    #region Constructor
+    static FileDaemon() { }
+    #endregion
+    
     #region Public API - Daemon Lifecycle
     /// <summary>
     /// Initiates the startup sequence for the daemon asynchronously, transitioning its state to running if successful.
@@ -83,19 +89,22 @@ public static class FileDaemon
     /// <returns>A task that represents the asynchronous operation of starting the daemon.</returns>
     public static async Task RequestStart()
     {
+        Log.Debug($"{Name}: RequestStart called.");
+        
         if (State != DaemonStatus.Stopped && State != DaemonStatus.Stopping && State != DaemonStatus.Error)
             return;
         
         State = DaemonStatus.Starting;
-        _writeBlock = false;
-
-        // Initialize caches
-        _cacheFast = new Cache();
-        _cacheSlow = new Cache();
-        _cacheGame = new Cache();
 
         try
         {
+            _writeBlock = false;
+
+            // Initialize caches
+            _cacheFast = new Cache();
+            _cacheSlow = new Cache();
+            _cacheGame = new Cache();
+
             _systemFastHeartbeat = new Heartbeat(TimeSpan.FromSeconds(5), SystemFastTick);
             _systemLongHeartbeat = new Heartbeat(TimeSpan.FromMinutes(1), SystemSlowTick);
             _gameHeartbeat = new Heartbeat(TimeSpan.FromSeconds(30), GameTick);
@@ -105,6 +114,9 @@ public static class FileDaemon
             await _gameHeartbeat.Start();
 
             _lastStartTime = DateTime.UtcNow;
+            
+            _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(OnShutdownInitiated);
+            
             State = DaemonStatus.Running;
         }
         catch (OperationCanceledException)
@@ -129,8 +141,10 @@ public static class FileDaemon
     /// heartbeat timers have been
     /// stopped.</returns>
     /// <exception cref="NullReferenceException">Thrown if any of the required heartbeat timers are null.</exception>
-    public static async Task RequestStop()
+    private static async Task RequestStop()
     {
+        Log.Debug($"{Name}: RequestStop called.");
+        
         if (State != DaemonStatus.Running && State != DaemonStatus.Starting)
         {
             return;
@@ -161,6 +175,27 @@ public static class FileDaemon
         {
             Log.Error(ex);
             State = DaemonStatus.Error;
+        }
+    }
+
+    private static async void OnShutdownInitiated()
+    {
+        try
+        {
+            Log.Info($"{Name}: Shutdown initated, flushing cache...");
+
+            try
+            {
+                await RequestStop();
+            }
+            catch (Exception ex)
+            {
+                Log.Error(ex);
+            }
+        }
+        catch (Exception e)
+        {
+            Log.Error(e);
         }
     }
     #endregion
@@ -226,7 +261,7 @@ public static class FileDaemon
             }
 
             // Check cache first based on priority
-            Cache targetCache = priority switch
+            var targetCache = priority switch
             {
                 FilePriority.SystemFast => _cacheFast,
                 FilePriority.SystemSlow => _cacheSlow,
@@ -244,7 +279,7 @@ public static class FileDaemon
                 return null;
             }
 
-            byte[] bytes = await File.ReadAllBytesAsync(path, SystemDaemon.GlobalShutdownToken);
+            var bytes = await File.ReadAllBytesAsync(path, SystemDaemon.GlobalShutdownToken);
 
             // Cache it for next time (not dirty since we just read it)
             targetCache.SetEntry(path, bytes, dirty: false, priority);
@@ -257,7 +292,7 @@ public static class FileDaemon
         /// <remarks>If a global shutdown is in progress, the write operation will be rejected and no data
         /// will be written.</remarks>
         /// <param name="path">The path where the data will be written. This should be a valid file
-        /// ystem path.</param>
+        /// system path.</param>
         /// <param name="data">The byte array containing the data to write to the specified path.
         /// Cannot be null.</param>
         /// <param name="priority">The priority level to assign to the write operation.
@@ -379,11 +414,8 @@ public static class FileDaemon
         {
             var cutoff = DateTime.UtcNow - maxAge;
 
-            foreach (var kvp in _entries)
+            foreach (var (path, entry) in _entries)
             {
-                var path = kvp.Key;
-                var entry = kvp.Value;
-
                 // 1. If the file has been accessed recently, skip it.
                 if (entry.LastAccess > cutoff)
                     continue;
@@ -673,8 +705,8 @@ public static class FileDaemon
                 if (!cache.TryGetValue(path, out FileEntry? entry) || entry == null)
                     continue;
 
-                long currentVersion = entry.Version;
-                byte[]? data = entry.Content;
+                var currentVersion = entry.Version;
+                var data = entry.Content;
 
                 if (data == null || data.Length == 0)
                     continue;

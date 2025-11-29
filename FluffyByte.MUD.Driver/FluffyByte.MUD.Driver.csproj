@@ -29,6 +29,7 @@
   <ItemGroup>
     <Folder Include="Core\Trackers\" />
     <Folder Include="AutoDoc\" />
+    <Folder Include="Core\Types\Primitives\Ansi\" />
   </ItemGroup>
 
 </Project>

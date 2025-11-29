@@ -6,6 +6,7 @@
  *-------------------------------------------------------------
  */
 using System.Text;
+using FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
 
@@ -60,7 +61,7 @@ public static class SystemDaemon
 
         try
         {
-            GlobalShutdownToken = new();
+            GlobalShutdownToken = new CancellationToken();
 
             await FileDaemon.RequestStart();
         }
@@ -97,8 +98,6 @@ public static class SystemDaemon
             );
 
             await cts.CancelAsync();
-
-            await FileDaemon.RequestStop();
         }
         catch (OperationCanceledException)
         {
@@ -126,6 +125,8 @@ public static class SystemDaemon
     {
         StringBuilder sb = new();
 
+        sb.AppendLine($"{NetworkDaemon.Name} -- {NetworkDaemon.State} -- {NetworkDaemon.Uptime}");
+        
         sb.AppendLine($"{FileDaemon.Name} -- {FileDaemon.State} -- {FileDaemon.Uptime}");
         // Add future daemons here
 

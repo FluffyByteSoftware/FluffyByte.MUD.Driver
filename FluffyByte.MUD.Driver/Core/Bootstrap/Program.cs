@@ -6,7 +6,6 @@
  *-------------------------------------------------------------
  */
 using FluffyByte.MUD.Driver.Core.Daemons;
-using FluffyByte.MUD.Driver.Core.Types.Daemons.FileManager;
 using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Bootstrap;
@@ -28,24 +27,16 @@ public static class Program
         {
             Console.WriteLine($"Args: {args}");
         }
-
-        Log.Info($"{Constellations.DriverName} starting up...");
+        BootstrapLogger.Write($"Current Time: {DateTime.UtcNow}... Preparing to boot driver.");
         
         Thread.Sleep(millisecondsTimeout:1000);
 
+        BootstrapLogger.Write("Starting systemd");
         await SystemDaemon.RequestStart();
-        
-        // Store some data
-        var fileData = await FileDaemon.InputOutput.Read(@"E:\Temp\test.txt", FilePriority.SystemFast);
 
-        if(fileData == null || fileData.Length == 0)
-        {
-            Log.Warn($@"E:\Temp\test.txt was empty.");
-        }
+        Log.Info($"Bootstrap sequence completed.");
+        Log.Info($"{SystemDaemon.RequestStatus()}");
         
-        
-        
-        Console.WriteLine($"{SystemDaemon.RequestStatus()}");
         Console.ReadLine();
 
         await SystemDaemon.RequestStop();
