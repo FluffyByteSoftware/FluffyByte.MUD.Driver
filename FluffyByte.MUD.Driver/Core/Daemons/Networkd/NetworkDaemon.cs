@@ -32,12 +32,15 @@ public static class NetworkDaemon
     public static TimeSpan Uptime => DateTime.UtcNow - _lastStartTime;
 
     private static DateTime _lastStartTime = DateTime.UtcNow;
+    private static CancellationTokenRegistration _shutdownRegistration;
     
     /// <summary>
     /// Requests the networkd to start operations.
     /// </summary>
     public static async ValueTask RequestStart()
     {
+        Log.Debug($"Startup called on {Name}.");
+        
         if (State is DaemonStatus.Running or DaemonStatus.Starting)
         {
             Log.Warn($"A startup request was pushed to {Name} but it is in state: {State}. Omitting.");
@@ -48,8 +51,9 @@ public static class NetworkDaemon
 
         try
         {
-            // Spin up the TcpWorker here
+            _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(OnShutdownInitiated);
             
+            // Spin up the TcpWorker here
             _lastStartTime = DateTime.UtcNow;
         }
         catch (Exception ex)
@@ -70,22 +74,38 @@ public static class NetworkDaemon
     /// </summary>
     public static async ValueTask RequestStop()
     {
+        Log.Debug($"Shutdown called on {Name}.");
         if (State is DaemonStatus.Stopped or DaemonStatus.Stopping)
         {
             Log.Warn($"A shutdown request was pushed to {Name} but it is in state: {State}. Omitting.");
             return;
         }
 
+        State = DaemonStatus.Stopping;
+
         try
         {
             // Handle graceful shutdown here
 
+            await _shutdownRegistration.DisposeAsync();
         }
         catch (Exception ex)
         {
             Log.Error($"Error in RequestStop() of {Name}", ex);
+            State = DaemonStatus.Error;
         }
-        await Task.CompletedTask;
+        finally
+        {
+            if (State == DaemonStatus.Error) 
+                await ValueTask.CompletedTask;
+            
+            State = DaemonStatus.Stopped;
+        }
+    }
+
+    private static void OnShutdownInitiated()
+    {
+        Log.Debug($"Shutdown initiated on {Name}, Cancellation Method called successfully!");
     }
 }
 /*------------------------------------------------------------

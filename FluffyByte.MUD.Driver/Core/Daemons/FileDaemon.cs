@@ -30,7 +30,7 @@ public static class FileDaemon
     /// </summary>
     public static string Name => "filed";
     
-    private static CancellationTokenRegistration? _shutdownRegistration;
+    private static CancellationTokenRegistration _shutdownRegistration;
     
     private static Heartbeat? _systemFastHeartbeat;
     private static Heartbeat? _systemLongHeartbeat;
@@ -51,29 +51,13 @@ public static class FileDaemon
     /// Stores the last starttime of the FileDaemon.
     /// </summary>
     private static DateTime? _lastStartTime;
-
-    /// <summary>
-    /// Indicates whether block writing is currently enabled.
-    /// </summary>
-    private static bool _writeBlock;
-
+    
     /// <summary>
     /// Gets the duration for which the daemon has been running since its last start.
     /// </summary>
     /// <remarks>If the daemon is not running or has never been started, the value
     /// is <see cref="TimeSpan.Zero"/>.</remarks>
-    public static TimeSpan Uptime
-    {
-        get
-        {
-            if (_lastStartTime == null || State == DaemonStatus.Stopped)
-            {
-                return TimeSpan.Zero;
-            }
-
-            return DateTime.UtcNow - _lastStartTime.Value;
-        }
-    }
+    public static TimeSpan Uptime => DateTime.UtcNow - _lastStartTime ?? TimeSpan.Zero;
 
     #region Constructor
     static FileDaemon() { }
@@ -98,8 +82,6 @@ public static class FileDaemon
 
         try
         {
-            _writeBlock = false;
-
             // Initialize caches
             _cacheFast = new Cache();
             _cacheSlow = new Cache();
@@ -114,9 +96,14 @@ public static class FileDaemon
             await _gameHeartbeat.Start();
 
             _lastStartTime = DateTime.UtcNow;
-            
+
+            Log.Debug($"{Name}: About to register shutdown callback...");
+
             _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(OnShutdownInitiated);
-            
+
+            Log.Debug($"{Name}: Shutdown callback registered.  Token.CanbeCancelled: " +
+                      $"{SystemDaemon.GlobalShutdownToken.CanBeCanceled}");
+
             State = DaemonStatus.Running;
         }
         catch (OperationCanceledException)
@@ -129,6 +116,12 @@ public static class FileDaemon
             Log.Error($"Exception in RequestStart of {Name}", ex);
             State = DaemonStatus.Error;
         }
+        finally
+        {
+            State = DaemonStatus.Running;
+        }
+
+        await Task.CompletedTask;
     }
 
     /// <summary>
@@ -144,9 +137,10 @@ public static class FileDaemon
     private static async Task RequestStop()
     {
         Log.Debug($"{Name}: RequestStop called.");
-        
+
         if (State != DaemonStatus.Running && State != DaemonStatus.Starting)
         {
+            Log.Warn($"FileDaemon was requested to stop but it is in state: {State}. Omitting.");
             return;
         }
 
@@ -160,15 +154,13 @@ public static class FileDaemon
 
         try
         {
-            _writeBlock = true;
-
             // Flush everything before stopping
             await FlushQueue.FlushAll();
 
             await _systemFastHeartbeat.Stop();
             await _gameHeartbeat.Stop();
             await _systemLongHeartbeat.Stop();
-
+            await _shutdownRegistration.DisposeAsync();
             State = DaemonStatus.Stopped;
         }
         catch (Exception ex)
@@ -187,6 +179,7 @@ public static class FileDaemon
             try
             {
                 await RequestStop();
+                
             }
             catch (Exception ex)
             {
@@ -203,6 +196,8 @@ public static class FileDaemon
     #region Heartbeats (Ticks)
     private static Task SystemFastTick(long _)
     {
+        _cacheFast?.PruneStaleEntries((TimeSpan.FromMinutes(30)));
+        
         return FlushQueue.CheckFlush(FilePriority.SystemFast);
     }
 
@@ -213,15 +208,15 @@ public static class FileDaemon
     /// <returns>A FlushQueue</returns>
     private static Task SystemSlowTick(long _)
     {
-        _cacheFast?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
         _cacheSlow?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
-        _cacheGame?.PruneStaleEntries(TimeSpan.FromMinutes(30)); // Remove items unused at 30 minutes
 
         return FlushQueue.CheckFlush(FilePriority.SystemSlow);
     }
 
     private static Task GameTick(long _)
     {
+        _cacheGame?.PruneStaleEntries((TimeSpan.FromMinutes(30)));
+        
         return FlushQueue.CheckFlush(FilePriority.Game);
     }
     #endregion
@@ -245,12 +240,6 @@ public static class FileDaemon
         /// <returns>A byte array of file contents.</returns>
         public static async Task<byte[]?> Read(string path, FilePriority priority = FilePriority.Game)
         {
-            if (_writeBlock)
-            {
-                Log.Warn($"Received a request to read {path}, but writeBlock is {_writeBlock}.");
-                return null;
-            }
-
             if (_cacheFast == null || _cacheSlow == null || _cacheGame == null)
             {
                 Log.Error(
@@ -376,10 +365,8 @@ public static class FileDaemon
             allDirtyFiles.AddRange(FlushQueue.GetDirtyPaths(FilePriority.SystemSlow));
             allDirtyFiles.AddRange(FlushQueue.GetDirtyPaths(FilePriority.Game));
 
-            if (allDirtyFiles.Count == 0)
-                return "No files waiting to write.";
-
-            return allDirtyFiles.ToCommaList();
+            return allDirtyFiles.Count == 0 ? "No files waiting to write." :
+                allDirtyFiles.ToCommaList();
         }
     }
     #endregion
@@ -713,7 +700,7 @@ public static class FileDaemon
 
                 try
                 {
-                    await File.WriteAllBytesAsync(path, data, SystemDaemon.GlobalShutdownToken);
+                    await File.WriteAllBytesAsync(path, data);
 
                     if (entry.Version == currentVersion)
                     {

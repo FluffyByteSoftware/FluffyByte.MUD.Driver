@@ -24,14 +24,24 @@ public interface IDaemonWorker
     DaemonStatus State { get; }
 
     /// <summary>
+    /// Returns the current run time of the daemon worker.
+    /// </summary>
+    TimeSpan Uptime { get; }
+
+    /// <summary>
+    /// The DateTime of the last start (in UTC)
+    /// </summary>
+    DateTime LastStartTime { get; }
+
+    /// <summary>
     /// Request the worker to start its internal processes.
     /// </summary>
-    ValueTask RequestStart();
+    void RequestStart();
 
     /// <summary>
     /// Request the worker to stop its internal processes.
     /// </summary>
-    ValueTask RequestStop();
+    void RequestStop();
 }
 /*
  *------------------------------------------------------------

@@ -5,7 +5,6 @@
  * Created by - Jacob Chacko
  *------------------------------------------------------------
  */
-
 using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Bootstrap;
@@ -29,10 +28,11 @@ internal static class BootstrapLogger
         {
             Directory.CreateDirectory((@".\Logs\"));
 
-            using (File.Create(LOG_FILE_PATH)) ;
-
-            if (new FileInfo(LOG_FILE_PATH).Length > 1024)
-                File.Move(LOG_FILE_PATH, @".\Logs\{DateTime.UtcNow}_bootstrap.log");
+            using (File.Create(LOG_FILE_PATH))
+            {
+                if (new FileInfo(LOG_FILE_PATH).Length > 1024)
+                    File.Move(LOG_FILE_PATH, @".\Logs\{DateTime.UtcNow}_bootstrap.log");
+            }
         }
         catch (Exception ex)
         {

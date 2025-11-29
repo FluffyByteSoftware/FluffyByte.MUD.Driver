@@ -6,6 +6,7 @@
  *-------------------------------------------------------------
  */
 using FluffyByte.MUD.Driver.Core.Daemons;
+using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Bootstrap;
@@ -27,12 +28,16 @@ public static class Program
         {
             Console.WriteLine($"Args: {args}");
         }
+        
         BootstrapLogger.Write($"Current Time: {DateTime.UtcNow}... Preparing to boot driver.");
         
         Thread.Sleep(millisecondsTimeout:1000);
 
         BootstrapLogger.Write("Starting systemd");
         await SystemDaemon.RequestStart();
+        
+        if(SystemDaemon.State == DaemonStatus.Running)
+            BootstrapLogger.Write("Systemd is now running.  Transitioning to Log.");
 
         Log.Info($"Bootstrap sequence completed.");
         Log.Info($"{SystemDaemon.RequestStatus()}");

@@ -25,13 +25,21 @@ public static class SystemDaemon
     /// <summary>
     /// The Global CancellationToken used to signal shutdown across the system.
     /// </summary>
-    public static CancellationToken GlobalShutdownToken { get; private set; }
+    public static CancellationToken GlobalShutdownToken => _globalCts.Token;
 
+    private static CancellationTokenSource _globalCts = new();
     /// <summary>
     /// The name of the daemon.
     /// </summary>
     public static string Name => "systemd";
 
+    private static DateTime _lastStartTime = DateTime.UtcNow;
+    
+    /// <summary>
+    /// The present up time (as a TimeSpan) of the daemon.
+    /// </summary>
+    public static TimeSpan Uptime => DateTime.UtcNow - _lastStartTime;
+    
     /// <summary>
     /// Current status of the Daemon
     /// 1. Stopped
@@ -61,9 +69,19 @@ public static class SystemDaemon
 
         try
         {
-            GlobalShutdownToken = new CancellationToken();
+            if (_globalCts.IsCancellationRequested)
+            {
+                _globalCts.Dispose();
+                _globalCts = new CancellationTokenSource();
+            }
 
+            Log.Debug($"Requesting start of FileDaemon and NetworkDaemon...");
+            
             await FileDaemon.RequestStart();
+            
+            await NetworkDaemon.RequestStart();
+            
+            Log.Debug($"FileDaemon and NetworkDaemon started.");
         }
         catch (OperationCanceledException)
         {
@@ -77,6 +95,7 @@ public static class SystemDaemon
         }
         finally
         {
+            _lastStartTime = DateTime.UtcNow;
             State = DaemonStatus.Running;
         }
     }
@@ -93,11 +112,7 @@ public static class SystemDaemon
 
         try
         {
-            var cts = CancellationTokenSource.CreateLinkedTokenSource(
-                GlobalShutdownToken
-            );
-
-            await cts.CancelAsync();
+            await _globalCts.CancelAsync();
         }
         catch (OperationCanceledException)
         {
