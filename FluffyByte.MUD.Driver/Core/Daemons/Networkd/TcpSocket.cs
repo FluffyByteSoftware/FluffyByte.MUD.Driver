@@ -8,7 +8,6 @@
 
 using System.Net;
 using System.Net.Sockets;
-using System.Text;
 using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
@@ -30,8 +29,6 @@ public sealed class TcpSocket : IDisposable
 {
     private Socket _listeningSocket;
     private EndPoint _hostEndPoint;
-
-    private Switchboard? _switchboard = NetworkDaemon.Switchboard;
     
     #region Life Cycle
     private CancellationTokenRegistration _shutdownRegistration;
@@ -46,52 +43,55 @@ public sealed class TcpSocket : IDisposable
     /// are gracefully closed when the application initiates a system-wide shutdown.
     /// </remarks>
     /// <exception cref="ObjectDisposedException">
-    /// Thrown if an attempt is made to use the TcpSocket instance after it has been disposed.
+    /// Thrown if an attempt is made to use the TcpSocket instance after it has been disposed of.
     /// </exception>
     public TcpSocket()
     {
         _shutdownRegistration = new CancellationTokenRegistration();
         _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(RequestShutdown);
-        
-        _listeningSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-        _hostEndPoint = new IPEndPoint(IPAddress.Parse(Constellations.HostAddress), Constellations.HostPort);
+        _listeningSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, 
+            ProtocolType.Tcp);
+        _hostEndPoint = new IPEndPoint(IPAddress.Parse(Constellations.HostAddress), 
+            Constellations.HostPort);
     }
 
-    /// <summary>
-    /// Initiates the startup process for the TCP socket by configuring and binding the socket to a specified endpoint,
-    /// starting to listen for incoming connections, and registering a shutdown handler with the global system daemon.
-    /// </summary>
-    /// <remarks>
-    /// This method sets up the TCP socket for accepting new connections by initializing its parameters, binding it
-    /// to the configured host endpoint, and starting the listening process. It also integrates with the global
-    /// shutdown mechanism to ensure a clean and graceful shutdown when a system-wide shutdown event is triggered.
-    /// </remarks>
-    /// <exception cref="ArgumentNullException">
-    /// Thrown if the host address or port configuration is null or invalid.
+    /// <summary>Initiates the startup process for the TCP socket by configuring and binding the socket to a
+    /// specified endpoint, starting to listen for incoming connections, and registering a shutdown handler with
+    /// the global system daemon.</summary>
+    /// <remarks>This method sets up the TCP socket for accepting new connections by initializing its parameters,
+    /// binding it to the configured host endpoint, and starting the listening process. It also integrates with
+    /// the global shutdown mechanism to ensure a clean and graceful shutdown when a system-wide shutdown event
+    /// is triggered.</remarks>
+    /// <exception cref="ArgumentNullException">Thrown if the host address or port configuration is null or invalid.
     /// </exception>
-    /// <exception cref="SocketException">
-    /// Thrown if an error occurs while binding or listening on the socket.
-    /// </exception>
-    /// <exception cref="OperationCanceledException">
-    /// Thrown if the operation is canceled, typically during a shutdown event.
-    /// </exception>
-    /// <exception cref="Exception">
-    /// Thrown if an unexpected exception occurs during the initialization process.
-    /// </exception>
+    /// <exception cref="SocketException">Thrown if an error occurs while binding or listening on the
+    /// socket.</exception>
+    /// <exception cref="OperationCanceledException">Thrown if the operation is canceled, typically during a
+    /// shutdown event.</exception>
+    /// <exception cref="Exception">Thrown if an unexpected exception occurs during the initialization
+    /// process.</exception>
     public void RequestStart()
     {
         try
         {
+            Log.Debug($"TcpWorker: RequestStart() called.");
             _shutdownRegistration = new CancellationTokenRegistration();
             _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(RequestShutdown);
             
-            _listeningSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, ProtocolType.Tcp);
-            _hostEndPoint = new IPEndPoint(IPAddress.Parse(Constellations.HostAddress), Constellations.HostPort);
+            _listeningSocket = new Socket(AddressFamily.InterNetwork, SocketType.Stream, 
+                ProtocolType.Tcp);
+            _hostEndPoint = new IPEndPoint(IPAddress.Parse(Constellations.HostAddress), 
+                Constellations.HostPort);
             
             _listeningSocket.Bind(_hostEndPoint);
             _listeningSocket.Listen(Constellations.MaximumNumberSockets);
 
-            _ = ListenForConnections();
+            Log.Debug($"TcpWorker: Listening on {_hostEndPoint}.");
+            Log.Debug($"TcpWorker: RequestStart() completed and listening.");
+            
+            Thread.Sleep(1000);
+            _= ListenForConnections();
+            
         }
         catch (OperationCanceledException)
         {
@@ -106,20 +106,22 @@ public sealed class TcpSocket : IDisposable
 
     /// <summary>Releases the resources used by the TcpSocket instance, including the underlying TCP listening socket
     /// and any active registrations for global shutdown events.</summary>
-    /// <remarks>This method ensures the proper clean-up of resources associated with the TcpSocket instance. It
+    /// <remarks>This method ensures the proper cleanup of resources associated with the TcpSocket instance. It
     /// disposes of the internal listening socket to release system-level resources and unregisters the shutdown
     /// cancellation token registration to prevent memory leaks.</remarks>
     /// <exception cref="ObjectDisposedException">Thrown if the underlying socket has already been disposed when this
     /// method is called. </exception>
     public void Dispose()
     {
-        _listeningSocket.Dispose();
+        _listeningSocket.Close();
+        
         _shutdownRegistration.Dispose();
+        _listeningSocket.Dispose();
     }
 
     /// <summary>
     /// Initiates the shutdown process for the current TCP socket by closing and shutting down the associated
-    /// listening socket. This method is automatically triggered when the global shutdown called.</summary>
+    /// listening socket. This method is automatically triggered when the global shutdown is called.</summary>
     /// <remarks>During the shutdown process, the method ensures that all active socket connections are
     /// terminated gracefully. It also logs warnings if an operation is canceled, which is expected
     /// behavior during the shutdown phase. Any unexpected exceptions encountered during the shutdown
@@ -133,9 +135,8 @@ public sealed class TcpSocket : IDisposable
         try
         {
             _listeningSocket.Close();
-            _listeningSocket.Shutdown(SocketShutdown.Both);
-
-            _shutdownRegistration.Dispose();
+            
+            Dispose();
         }
         catch (OperationCanceledException)
         {
@@ -151,42 +152,42 @@ public sealed class TcpSocket : IDisposable
     #endregion Life Cycle
     
     #region Listening For Connections
-
-    /// <summary>
-    /// Continuously listens for incoming TCP client connections on the bound socket.
-    /// </summary>
-    /// <remarks>
-    /// This method is an asynchronous task that remains active as long as the system is not undergoing a shutdown,
-    /// and the associated switchboard is operational. It accepts incoming connections until the maximum
+    /// <summary>Continuously listens for incoming TCP client connections on the bound socket.</summary>
+    /// <remarks>This method is an asynchronous task that remains active as long as the system is not undergoing
+    /// a shutdown, and the associated switchboard is operational. It accepts incoming connections until the maximum
     /// number of allowable connections is reached, as defined by the system configuration. Each accepted
-    /// client connection is handed off to a handler for further processing.
-    /// </remarks>
-    /// <exception cref="OperationCanceledException">
-    /// Thrown when the operation is canceled, typically as part of a graceful shutdown procedure.
-    /// </exception>
-    /// <exception cref="Exception">
-    /// Thrown if an unexpected error occurs while listening for incoming client connections.
-    /// </exception>
-    /// <returns>
-    /// A task that represents the asynchronous operation of listening for and accepting client connections.
-    /// </returns>
+    /// client connection is handed off to a handler for further processing.</remarks>
+    /// <exception cref="OperationCanceledException">Thrown when the operation is canceled, typically as part
+    /// of a graceful shutdown procedure.</exception>
+    /// <exception cref="Exception">Thrown if an unexpected error occurs while listening for incoming client
+    /// connections.</exception>
+    /// <returns>A task that represents the asynchronous operation of listening for and accepting
+    /// client connections.</returns>
     private async Task ListenForConnections()
     {
         try
         {
-            while (!SystemDaemon.GlobalShutdownToken.IsCancellationRequested && _switchboard != null)
+            _listeningSocket.Listen(Constellations.MaximumNumberSockets);
+            Log.Debug($"TcpSocket: Listening for connections.");
+
+            while (!SystemDaemon.GlobalShutdownToken.IsCancellationRequested && NetworkDaemon.Switchboard != null)
             {
-                if (_switchboard?.ClientCount < Constellations.MaximumNumberSockets)
+                if (NetworkDaemon.Switchboard.ClientCount < Constellations.MaximumNumberSockets)
                 {
                     var clientSocket = await _listeningSocket.AcceptAsync();
                     _ = HandleClientConnection(clientSocket);
                 }
             }
         }
+        catch (SocketException)
+        {
+            // Expected during shutdown
+            Log.Debug($"SocketException during ListenForConnections of TcpSocket. This is expected!");
+        }
         catch (OperationCanceledException)
         {
             // Expected during shutdown
-            Log.Warn($"OperationCanceled during ListenForConnections of TcpSocket.");
+            Log.Debug($"OperationCanceled during ListenForConnections of TcpSocket.");
         }
         catch (Exception ex)
         {
@@ -198,7 +199,7 @@ public sealed class TcpSocket : IDisposable
 
     /// <summary>
     /// Handles an individual client connection by initializing the client
-    /// and managing its lifecycle, while respecting global system shutdown requests.
+    /// and managing its lifecycle while respecting global system shutdown requests.
     /// </summary>
     /// <param name="clientSocket">The socket representing the client's network connection.</param>
     /// <returns>A Task that represents the asynchronous operation of handling the client connection.</returns>
@@ -206,12 +207,17 @@ public sealed class TcpSocket : IDisposable
     /// connection handling process. </exception>
     /// <exception cref="Exception">Thrown if an unexpected error occurs while managing the
     /// client connection.</exception>
-    private async Task HandleClientConnection(Socket clientSocket)
+    private static async Task HandleClientConnection(Socket clientSocket)
     {
+        if (NetworkDaemon.Switchboard == null)
+        {
+            Log.Error($"Switchboard was null during HandleClientConnection()");
+            return;
+        }
+    
         try
         {
-            if (SystemDaemon.GlobalShutdownToken.IsCancellationRequested 
-                || NetworkDaemon.Switchboard == null)
+            if (SystemDaemon.GlobalShutdownToken.IsCancellationRequested)
             {
                 Log.Warn($"OperationCanceled during HandleClientConnection of TcpSocket.");
                 clientSocket.Close();
@@ -223,17 +229,16 @@ public sealed class TcpSocket : IDisposable
             if (!await client.InitializeClient())
             {
                 Log.Warn($"Failed to initialize client: {client.Name}");
-                client.RequestDisconnect();
+                client.RequestDisconnect("Failed to initialize client.");
                 return;
             }
-
-            var message = Encoding.UTF8.GetBytes("Welcome to the MUD!");
-            
-            await client.SendBytesAsync(message);
-            _switchboard?.AddClient(client);
-
-            await Task.Delay(10000);
-            client.RequestDisconnect();
+        
+            // Add to the switchboard FIRST so it gets ticked
+            NetworkDaemon.Switchboard.AddClient(client);
+        
+            // Queue messages AFTER it's in the switchboard
+            client.QueueWrite("Welcome to FluffyByte MUD!\r\n");
+            client.QueueWrite("Connection established.\r\n");
         }
         catch (OperationCanceledException)
         {

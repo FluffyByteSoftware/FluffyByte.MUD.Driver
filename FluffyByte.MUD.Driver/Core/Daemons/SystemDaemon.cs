@@ -8,6 +8,7 @@
 using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
+using FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
 
 namespace FluffyByte.MUD.Driver.Core.Daemons;
 
@@ -41,18 +42,9 @@ public static class SystemDaemon
     /// matches that of the application.</remarks>
     public static CancellationToken GlobalShutdownToken { get; private set; }
 
-    /// <summary>
-    /// A globally accessible <see cref="TaskCompletionSource{Boolean}"/> used to track and signal the completion
-    /// of the system daemon's boot process.</summary>
-    /// <remarks>The <c>GlobalBootRequest</c> property is used by the <see cref="SystemDaemon"/> class to
-    /// coordinate the initialization phase of the system. It serves as a synchronization point that can be awaited
-    /// by other components dependent on the successful startup of the daemon. The property is a static member and is
-    /// initialized during the class's static initialization. Once the boot process is completed successfully,
-    /// the associated task is marked as complete to signal-dependent systems.
-    /// </remarks>
-    public static TaskCompletionSource<bool> GlobalBootRequest { get; } = new();
-
     private static DaemonStatus _state = DaemonStatus.Stopped;
+    private static DateTime _lastStartTime = DateTime.MaxValue;
+    private static TimeSpan Uptime => DateTime.UtcNow - _lastStartTime;
     
     /// <summary>Provides static methods and properties for managing the system daemon, which coordinates global system
     /// tasks and oversees other daemons.</summary>
@@ -69,7 +61,7 @@ public static class SystemDaemon
     /// <summary>Initializes the system daemon and begins its operation, preparing it to coordinate global system tasks
     /// and oversee other daemons. Ensures the global shutdown token is set up for signaling.</summary>
     /// <returns>A ValueTask representing the asynchronous operation of starting the system daemon.</returns>
-    public static void RequestStart()
+    public static async Task RequestStart()
     {
         if (_state is DaemonStatus.Running or DaemonStatus.Starting)
         {
@@ -79,19 +71,35 @@ public static class SystemDaemon
 
         try
         {
+            _state = DaemonStatus.Starting;
             _globalTokenSource = new CancellationTokenSource();
             GlobalShutdownToken = _globalTokenSource.Token;
+
+            Log.Info($"{Name}: Attempting to start all other services...");
             
-            GlobalBootRequest.SetResult(true);
+            // Force daemons awake
+            // File must be loaded first, as other Daemons might depend on read/write files.
+            FileDaemon.RequestStart();
+            NetworkDaemon.RequestStart();
+            CommandDaemon.RequestStart();
+            await HeartbeatDaemon.RequestStart();
+            
+            _lastStartTime = DateTime.UtcNow;
+            
+            Log.Info($"{Name}: All services started successfully.");
+            
+            _state = DaemonStatus.Running;
         }
         catch (OperationCanceledException)
         {
             // Expected during a shutdown
-            Log.Warn($"OperationCanceled during RequestStart of SystemDaemon.");
+            Log.Warn($"{Name}: Exception - Operation Canceled during RequestStart of SystemDaemon.");
+            _state = DaemonStatus.Error;
         }
         catch (Exception ex)
         {
-            Log.Error($"Exception during RequestStart of SystemDaemon.", ex);
+            Log.Error($"{Name}: Exception in RequestStart()", ex);
+            _state = DaemonStatus.Error;
         }
     }
 
@@ -113,11 +121,10 @@ public static class SystemDaemon
         try
         {
             _state = DaemonStatus.Stopping;
-            
-            await _globalTokenSource.CancelAsync();
-            _globalTokenSource.Dispose();
 
-            GlobalBootRequest.SetResult(false);
+            await _globalTokenSource.CancelAsync();
+                
+            _globalTokenSource.Dispose();
             
             _state = DaemonStatus.Stopped;
         }
@@ -141,8 +148,14 @@ public static class SystemDaemon
         try
         {
             var output = new StringBuilder();
+            
             output.AppendLine("Status of systemd...");
-            output.AppendLine($"{Name} -- {_state}");
+            output.AppendLine($"{Name} -- {_state} -- {Uptime}");
+            
+            output.AppendLine(NetworkDaemon.RequestStatus);
+            output.AppendLine(HeartbeatDaemon.RequestStatus);
+            output.AppendLine(FileDaemon.RequestStatus);
+            
             return output.ToString();
         }
         catch (OperationCanceledException)
@@ -158,8 +171,6 @@ public static class SystemDaemon
         }
     }
     #endregion Life Cycle
-    
-    
 }
 
 /*

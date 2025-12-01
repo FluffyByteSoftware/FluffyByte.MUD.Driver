@@ -29,9 +29,6 @@ public class Constellations
     /// output. Adjusting the threshold may impact performance and memory usage depending on the application's
     /// requirements.</remarks>
     public const int FlushThresholdBytes = 10 * 1024 * 1024; // 10 MB
-    
-    /// <summary>Represents the name of the MUD (Multi-User Dungeon) instance.</summary>
-    public const string Mudname = "ORC";
 
     /// <summary>
     /// Specifies the maximum number of socket connections that can be simultaneously handled by the system.
@@ -76,9 +73,7 @@ public class Constellations
     /// <summary>
     /// Private Singleton Constructor
     /// </summary>
-    private Constellations()
-    {
-    }
+    public Constellations() { }
 }
 
 /*

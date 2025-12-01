@@ -22,7 +22,7 @@ namespace FluffyByte.MUD.Driver.FluffyTools;
 public static class Log
 {
     /// <summary>
-    /// Marks whether or not the Logger should display Debug messages or not.
+    /// Marks whether the Logger should display Debug messages or not.
     /// Useful for debugging.
     /// </summary>
     public static bool DebugModeEnabled { get; set; } = true;

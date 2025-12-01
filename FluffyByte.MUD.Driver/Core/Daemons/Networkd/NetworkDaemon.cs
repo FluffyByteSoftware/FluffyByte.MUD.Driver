@@ -27,10 +27,37 @@ public static class NetworkDaemon
     /// client addition, and removal in a thread-safe manner.
     /// </remarks>
     public static Switchboard? Switchboard { get; private set; } = new();
-    #endregion Workers
 
+    /// <summary>Provides access to the global TCP socket instance managed by the NetworkDaemon.</summary>
+    /// <remarks>
+    /// The <c>TcpSocket</c> property represents the core TCP socket handler used by the NetworkDaemon
+    /// to manage network connections. It facilitates the initialization and monitoring of TCP connections
+    /// across the application and ensures proper resource management during the daemon's lifecycle.
+    /// The property is initialized when the NetworkDaemon starts and is disposed of during shutdown,
+    /// following global system cleanup routines.
+    /// </remarks>
+    private static TcpSocket? _tcpSocket;
+
+    #endregion Workers
+    
+    #region Tick
+
+    /// <summary>Executes a network tick for all connected clients, advancing internal states and processing any
+    /// queued tasks.</summary>
+    /// <param name="tickCount">The current server tick count, representing the total number of ticks since the
+    /// server started.</param>
+    /// <returns>An asynchronous task that represents the completion of the tick operation.</returns>
+    public static async Task Tick(long tickCount)
+    {
+        if (Switchboard == null)
+            return;
+
+        await Switchboard.TickAllClients();
+    }
+    #endregion Tick
+    
     #region Life Cycle
-    private static CancellationTokenRegistration _shutdownRegistration;
+    private static CancellationTokenRegistration? _shutdownRegistration;
     
     /// <summary> Represents the current operational state of the NetworkDaemon.</summary>
     /// <remarks>The <c>State</c> property indicates the current lifecycle status of the NetworkDaemon instance,
@@ -58,11 +85,16 @@ public static class NetworkDaemon
     /// This property is useful for monitoring, diagnostics, and logging purposes, offering a concise
     /// overview of the NetworkDaemon's runtime status.</remarks>
     public static string RequestStatus => $"{Name} -- {_state} -- {Uptime}";
+
+    static NetworkDaemon()
+    {
+        Log.Debug($"{Name}: Static constructor called.");
+        
+        _tcpSocket = new TcpSocket();
+    }
     
-    /// <summary>
-    /// Requests the start of the network daemon.
-    /// Updates the daemon's state and handles any errors or cancellation scenarios.
-    /// </summary>
+    /// <summary>Requests the start of the network daemon. Updates the daemon's state and handles any errors or
+    /// cancellation scenarios.</summary>
     /// <returns>An asynchronous operation representing the completion of the request to start the daemon.</returns>
     public static void RequestStart()
     {
@@ -79,12 +111,17 @@ public static class NetworkDaemon
 
         try
         {
+            Log.Debug($"{Name}: RequestStart() called.");
             _state = DaemonStatus.Starting;
 
             _shutdownRegistration = new CancellationTokenRegistration();
             _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(RequestStop);
 
             Switchboard = new Switchboard();
+            
+            _tcpSocket = new TcpSocket();
+            _tcpSocket.RequestStart();
+
             _lastStartTime = DateTime.UtcNow;
             _state = DaemonStatus.Running;
         }
@@ -103,6 +140,8 @@ public static class NetworkDaemon
             
             _state = DaemonStatus.Error;
         }
+        
+        Log.Debug($"{Name}: RequestStart() completed successfully.");
     }
 
     /// <summary>Requests the cessation of the network daemon's operations.  Updates the daemon's state and handles
@@ -119,13 +158,10 @@ public static class NetworkDaemon
         {
             _state = DaemonStatus.Stopping;
             
-            Switchboard?.Shutdown();
-            Switchboard = null;
-            
             _lastStartTime = DateTime.MaxValue;
             _state = DaemonStatus.Stopped;
             
-            _shutdownRegistration.Dispose();
+            _shutdownRegistration?.Dispose();
         }
         catch (Exception ex)
         {

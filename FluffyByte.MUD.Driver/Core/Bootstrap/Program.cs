@@ -6,6 +6,8 @@
  *-------------------------------------------------------------
  */
 using FluffyByte.MUD.Driver.Core.Daemons;
+using FluffyByte.MUD.Driver.FluffyTools;
+
 namespace FluffyByte.MUD.Driver.Core.Bootstrap;
 
 /// <summary>
@@ -31,7 +33,9 @@ public static class Program
 
         BootstrapLogger.Write("Starting systemd");
         
-        SystemDaemon.RequestStart();
+        await SystemDaemon.RequestStart();
+        
+        Log.Info(SystemDaemon.RequestStatus());
         
         Console.ReadLine();
 

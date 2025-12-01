@@ -9,6 +9,7 @@
 using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
+using System.Text;
 using FluffyByte.MUD.Driver.FluffyTools;
 
 namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
@@ -56,23 +57,22 @@ public sealed class FluffyClient : IDisposable
     /// Gets or sets the network address associated with the instance of the <see cref="FluffyClient"/> class.
     /// </summary>
     /// <remarks>
-    /// This property represents the network address (e.g., IP address or hostname) used to connect
-    /// and communicate with the client in the FluffyByte MUD system. It is essential for identifying
-    /// the client's network endpoint and facilitating data exchange within the system.
-    /// </remarks>
-    public string Address { get; private set; }
+    /// This property represents the network address (e.g., IP address or hostname) used to connect and communicate
+    /// with the client in the FluffyByte MUD System. It is essential for identifying the client's network endpoint
+    /// and facilitating data exchange within the system.</remarks>
+    private readonly string _address;
 
     /// <summary>Gets the IP address associated with the client.</summary>
-    public IPAddress? IpAddress { get; private set; }
+    private readonly IPAddress? _ipAddress;
 
     /// <summary>Gets the DNS address associated with the client.</summary>
-    public string? DnsAddress { get; private set; }
+    private string? DnsAddress { get; set; }
 
     private bool _disconnecting;
     private bool _disposing;
 
     /// <summary>Represents a network client in the FluffyByte MUD application. This class provides
-    /// functionality for managing client connections including initialization, communication,
+    /// functionality for managing client connections: including initialization, communication,
     /// and disconnection activities.</summary>
     /// <remarks>FluffyClient is designed to manage the lifecycle of a single client connection
     /// and integrates with the broader system daemons for handling global shutdowns. </remarks>
@@ -87,25 +87,26 @@ public sealed class FluffyClient : IDisposable
         if(_socket.RemoteEndPoint is not IPEndPoint ep)
             throw new InvalidOperationException("Socket does not have an IP endpoint.");
 
-        IpAddress = ep.Address;
-        Address = IpAddress.ToString();
+        _ipAddress = ep.Address;
+        _address = _ipAddress.ToString();
         DnsAddress = "unresolved.com";
         
         _shutdownRegistration = new CancellationTokenRegistration();
         _shutdownRegistration = SystemDaemon.GlobalShutdownToken.Register(RequestShutdown);
+        Log.Info($"Client has joined.");
     }
 
     /// <summary>Initializes the FluffyClient instance by resolving its DNS address, generating a unique name,
     /// and setting up necessary metadata for client identification and communication.</summary>
     /// <remarks>This method attempts to resolve the client's DNS address using the provided IP address.
-    /// It generates a unique client name based on the GUID and address details, which is used for
+    /// It generates a unique client name based on the GUID and address details, which gets used for
     /// logging and client identification within the system.</remarks>
     /// <returns>A task representing the asynchronous operation. The task result is a boolean value:
     /// true if the client was successfully initialized; false if an error or cancellation occurred
     /// during initialization.</returns>
     public async Task<bool> InitializeClient()
     {
-        if (IpAddress is null)
+        if (_ipAddress is null)
         {
             RequestDisconnect();
             return false;
@@ -113,10 +114,10 @@ public sealed class FluffyClient : IDisposable
 
         try
         {
-            var hostEntry = await Dns.GetHostAddressesAsync(Address);
+            var hostEntry = await Dns.GetHostAddressesAsync(_address);
             DnsAddress = hostEntry.Length > 0 ? hostEntry[0].ToString() : "unresolved.com";
 
-            Name = $"{Guid}_{Address}/({DnsAddress})";
+            Name = $"{Guid}_{_address}/({DnsAddress})";
             Log.Debug($"Created FluffyClient: {Name}");
 
             return true;
@@ -195,6 +196,13 @@ public sealed class FluffyClient : IDisposable
         _disposing = true;
     }
 
+    private string _pendingPrompt = "> ";
+
+    /// <summary>Updates the client's input prompt to a specified string. This prompt will be displayed to the client
+    /// when they are awaiting input.</summary>
+    /// <param name="prompt">The new prompt string to be set. This value will replace the current prompt.</param>
+    public void SetPrompt(string prompt) => _pendingPrompt = prompt;
+
     /// <summary>Processes the client's main operational logic, including sending queued data and handling errors
     /// during communication. This method is designed to be called periodically to maintain the state and
     /// functionality of the client connection.</summary>
@@ -213,8 +221,22 @@ public sealed class FluffyClient : IDisposable
             // Flush all pending output to the client
             while (_writerQ.TryDequeue(out var buffer))
             {
+                Log.Info($"_writerQ: {Encoding.UTF8.GetString(buffer)}");
                 await SendBytesAsync(buffer);
             }
+
+            // Queue the prompt for next sending
+            if (!string.IsNullOrEmpty(_pendingPrompt))
+            {
+                QueueWrite(_pendingPrompt);
+                _pendingPrompt = ""; // Clear it so it only sends once
+            }
+        }
+        catch (SocketException)
+        {
+            // Expected during a disconnect or shutdown
+            Log.Debug($"SocketException during ClientTick on {Name}");
+            RequestDisconnect("Likely a dropped connection.");
         }
         catch (OperationCanceledException)
         {
@@ -237,34 +259,59 @@ public sealed class FluffyClient : IDisposable
 
     private const int MAX_LINE_LENGTH = 2048;
 
-    /// <summary>Enqueues a byte array into the client's write queue for asynchronous sending.</summary>
+    /// <summary>Enqueues a byte array into the client's writer queue for asynchronous sending.</summary>
     /// <param name="buffer">The byte array to be enqueued. Must not be empty.</param>
     public void QueueWrite(byte[] buffer)
     {
         if (buffer.Length == 0)
+        {
+            Log.Debug($"Attempted to enqueue empty buffer to {Name}.");
             return;
+        }
 
         _writerQ.Enqueue(buffer);
     }
 
-    /// <summary>Enqueues a UTF-8 encoded string into the client's write queue for asynchronous sending.</summary>
+    /// <summary>Enqueues a UTF-8 encoded string into the client's writer queue for asynchronous sending.</summary>
     /// <param name="text">The string to be enqueued. Must not be null or empty.</param>
-    public void QueueWrite(string text) => QueueWrite(System.Text.Encoding.UTF8.GetBytes(text));
+    public void QueueWrite(string text) => QueueWrite(Encoding.UTF8.GetBytes(text));
 
     /// <summary>Asynchronously sends a sequence of bytes to the associated network client.</summary>
     /// <param name="buffer">The byte array containing the data to be sent.</param>
     /// <returns>A <see cref="ValueTask"/> representing the asynchronous operation, with a result indicating
     /// whether the send operation completed successfully.</returns>
-    public async ValueTask SendBytesAsync(byte[] buffer)
+    private async ValueTask SendBytesAsync(byte[] buffer)
     {
         try
         {
-            await _socket.SendAsync(buffer, SocketFlags.None);
+            var totalSent = 0;
+
+            while (totalSent < buffer.Length)
+            {
+                var sent = await _socket.SendAsync(
+                    buffer.AsMemory(totalSent),
+                    SocketFlags.None);
+
+                if (sent == 0)
+                {
+                    throw new SocketException();
+                }
+
+                totalSent += sent;
+            }
+
+            Log.Debug($"Sending {buffer.Length} bytes to {Name}");
         }
         catch (OperationCanceledException)
         {
             // Expected during a shutdown
             Log.Debug($"Operation canceled during SendBytesAsync");
+            RequestDisconnect("Likely a shutdown.");
+        }
+        catch (SocketException)
+        {
+            Log.Debug($"SocketException during SendBytesAsync.");
+            RequestDisconnect("likely a dropped connection.");
         }
         catch (Exception ex)
         {
@@ -276,7 +323,7 @@ public sealed class FluffyClient : IDisposable
     /// <remarks>This method continuously reads bytes from the network socket until the connection is
     /// terminated or an error occurs. The received data is stored in an internal buffer and
     /// processed to extract complete lines based on predefined rules. If the input exceeds
-    /// the maximum allowed length or the connection is interrupted, the client is disconnected. </remarks>
+    /// the maximum allowed length or the connection is interrupted, the client is disconnected.</remarks>
     /// <returns>A <see cref="ValueTask"/> representing the asynchronous operation, which completes
     /// when the data is successfully read or if the connection gets terminated.</returns>
     public async ValueTask ReadBytesAsync()
@@ -317,6 +364,11 @@ public sealed class FluffyClient : IDisposable
             // Expected during a shutdown
             Log.Debug($"Operation canceled during ReadBytesAsync");
             RequestDisconnect("Likely a shutdown.");
+        }
+        catch (SocketException)
+        {
+            // Expected during a disconnect or shutdown
+            Log.Debug($"SocketException during ReadBytesAsync");
         }
         catch (Exception ex)
         {
@@ -363,10 +415,10 @@ public sealed class FluffyClient : IDisposable
 
             // Extract the command (without the terminator)
             var lineBytes = _inputBuffer.Take(lineEndIndex).ToArray();
-            var command = System.Text.Encoding.UTF8.GetString(lineBytes).TrimEnd();
+            var command = Encoding.UTF8.GetString(lineBytes).TrimEnd();
             
             if(!string.IsNullOrEmpty(command))
-                _commandQueue.Enqueue(System.Text.Encoding.UTF8.GetBytes(command));
+                _commandQueue.Enqueue(Encoding.UTF8.GetBytes(command));
 
             _inputBuffer.RemoveRange(0, lineEndIndex + terminatorLength);
         }
