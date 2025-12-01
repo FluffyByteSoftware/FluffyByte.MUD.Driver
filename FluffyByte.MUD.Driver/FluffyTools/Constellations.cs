@@ -8,17 +8,14 @@
 namespace FluffyByte.MUD.Driver.FluffyTools;
 
 /// <summary>
-/// Constellations is a singleton class that holds global defined constants, to make changing them much easier.
+/// Constellations is a singleton class that holds global constant values to make changing them much easier.
 /// </summary>
 public class Constellations
 {
-    /// <summary>
-    /// This constant holds the name of the Driver build.
-    /// If you modify the driver from it's original build, please rename.
-    /// </summary>
+    /// <summary>Name of the Driver</summary>
     public const string DriverName = "FLuffyByte.MUD.Driver";
     
-    private readonly static Lazy<Constellations> Singleton = new(() => new());
+    private static readonly Lazy<Constellations> Singleton = new(() => new Constellations());
     /// <summary>
     /// Singleton Instance of Constellations
     /// </summary>
@@ -31,12 +28,21 @@ public class Constellations
     /// <remarks>Use this constant to determine when buffered data should be flushed to persistent storage or
     /// output. Adjusting the threshold may impact performance and memory usage depending on the application's
     /// requirements.</remarks>
-    public const int FlushthresholdBytes = 10 * 1024 * 1024; // 10 MB
-    /// <summary>
-    /// Represents the name of the MUD (Multi-User Dungeon) instance.
-    /// </summary>
+    public const int FlushThresholdBytes = 10 * 1024 * 1024; // 10 MB
+    
+    /// <summary>Represents the name of the MUD (Multi-User Dungeon) instance.</summary>
     public const string Mudname = "ORC";
 
+    /// <summary>
+    /// Specifies the maximum number of socket connections that can be simultaneously handled by the system.
+    /// This limit is used to control resource usage and ensure application stability under load.
+    /// </summary>
+    public const int MaximumNumberSockets = 25;
+
+    /// <summary>Specifies the maximum size, in bytes, of a single message transmitted or received by the system.
+    /// This value is commonly used to define buffer sizes for network operations. </summary>
+    public const int MaximumMessageSize = 756;
+    
     /// <summary>
     /// Designation for the local network adapter address to bind the TCP server to.
     /// </summary>

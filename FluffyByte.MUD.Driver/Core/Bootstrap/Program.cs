@@ -6,9 +6,6 @@
  *-------------------------------------------------------------
  */
 using FluffyByte.MUD.Driver.Core.Daemons;
-using FluffyByte.MUD.Driver.Core.Types.Daemons;
-using FluffyByte.MUD.Driver.FluffyTools;
-
 namespace FluffyByte.MUD.Driver.Core.Bootstrap;
 
 /// <summary>
@@ -16,15 +13,14 @@ namespace FluffyByte.MUD.Driver.Core.Bootstrap;
 /// </summary>
 public static class Program
 {
-    /// <summary>
-    /// Serves as the entry point for the application.
-    /// </summary>
-    /// <param name="args">An array of command-line arguments supplied to the application. Can be empty if
-    /// no arguments are provided.</param>
-    /// <returns>A task that represents the asynchronous operation of the application entry point.</returns>
+    /// <summary>The entry point method for the FluffyByte MUD driver application.
+    /// Responsible for initializing the core system components, handling command-line arguments,
+    /// logging startup messages, and managing the lifecycle of the SystemDaemon.</summary>
+    /// <param name="args">An array of command-line arguments passed to the application at runtime.</param>
+    /// <returns>A Task representing the asynchronous execution of the application's main process.</returns>
     public static async Task Main(string[] args)
-    { 
-        if(args.Length > 0)
+    {
+        if (args.Length > 0)
         {
             Console.WriteLine($"Args: {args}");
         }
@@ -34,17 +30,12 @@ public static class Program
         Thread.Sleep(millisecondsTimeout:1000);
 
         BootstrapLogger.Write("Starting systemd");
-        await SystemDaemon.RequestStart();
         
-        if(SystemDaemon.State == DaemonStatus.Running)
-            BootstrapLogger.Write("Systemd is now running.  Transitioning to Log.");
-
-        Log.Info($"Bootstrap sequence completed.");
-        Log.Info($"{SystemDaemon.RequestStatus()}");
+        SystemDaemon.RequestStart();
         
         Console.ReadLine();
 
-        await SystemDaemon.RequestStop();
+        await SystemDaemon.RequestShutdown();
 
         Console.ReadLine();
     }
