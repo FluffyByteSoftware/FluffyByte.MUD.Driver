@@ -222,10 +222,12 @@ public static class FileDaemon
         try
         {
             // Check if cache has exceeded maximum allowable size
-            long cacheSize = GetCacheSize();
+            var cacheSize = GetCacheSize();
+
             if (cacheSize > Constellations.FlushThresholdBytes)
             {
-                Log.Warn($"{Name}: Cache size ({cacheSize} bytes) exceeds threshold ({Constellations.FlushThresholdBytes} bytes). Force flushing.");
+                Log.Warn($"{Name}: Cache size ({cacheSize} bytes) exceeds threshold " +
+                         $"({Constellations.FlushThresholdBytes} bytes). Force flushing.");
             }
             
             await FlushWriteQueue();
