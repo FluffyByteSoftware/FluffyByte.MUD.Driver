@@ -5,6 +5,8 @@
  * Created by - Seliris
  *-------------------------------------------------------------
  */
+
+using System.Text;
 using FluffyByte.MUD.Driver.Core.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
 
@@ -36,6 +38,22 @@ public static class Program
         await SystemDaemon.RequestStart();
         
         Log.Info(SystemDaemon.RequestStatus());
+
+        const string someData = "Poopy peepee poop";
+
+        FileDaemon.WriteFile(@"E:\Temp\test2.txt", Encoding.UTF8.GetBytes(someData));
+        
+        var fileData = FileDaemon.ReadFile(@"E:\Temp\test2.txt");
+
+        if (fileData == null)
+        {
+            Log.Error("File not found!");
+        }
+        else
+        {
+            Log.Info(Encoding.UTF8.GetString(fileData));
+        }
+        
         
         Console.ReadLine();
 

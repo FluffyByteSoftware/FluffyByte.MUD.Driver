@@ -21,7 +21,7 @@ public static class CommandDaemon
     #region Life Cycle
 
     private static CancellationTokenRegistration? _shutdownRegistration;
-    private static DaemonStatus _state = DaemonStatus.Stopped;
+    private static DaemonStatus _state;
     private static DateTime _lastStartTime = DateTime.MaxValue;
     private static TimeSpan Uptime => DateTime.UtcNow - _lastStartTime;
 

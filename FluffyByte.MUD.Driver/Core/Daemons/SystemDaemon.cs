@@ -122,6 +122,8 @@ public static class SystemDaemon
         {
             _state = DaemonStatus.Stopping;
 
+            await FileDaemon.ShutdownFlush();
+            
             await _globalTokenSource.CancelAsync();
                 
             _globalTokenSource.Dispose();

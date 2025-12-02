@@ -3,6 +3,7 @@
  *------------------------------------------------------------
  * Created - 11/24/2025 9:27:27 PM
  * Created by - Seliris
+ * Updated - Added ShutdownFlush and cache size threshold
  *-------------------------------------------------------------
  */
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
@@ -122,6 +123,17 @@ public static class FileDaemon
 
     private static readonly Dictionary<string, byte[]> WriteQueue = [];
     private static readonly Lock WriteLock = new Lock();
+    
+    /// <summary>
+    /// Calculates the total size in bytes of all cached files.
+    /// </summary>
+    private static long GetCacheSize()
+    {
+        lock (CacheLock)
+        {
+            return FileCache.Values.Sum(data => data.LongLength);
+        }
+    }
 
     /// <summary>Reads the contents of a file at the specified path into a byte array. If the file has been
     /// previously read, the method attempts to retrieve the data from an in-memory cache to improve
@@ -187,7 +199,7 @@ public static class FileDaemon
             FileCache[filePath] = data;
         }
 
-        lock (WriteQueue)
+        lock (WriteLock)
         {
             // Queue this file for disk write on the next tick
             WriteQueue[filePath] = data;
@@ -209,11 +221,35 @@ public static class FileDaemon
     {
         try
         {
+            // Check if cache has exceeded maximum allowable size
+            long cacheSize = GetCacheSize();
+            if (cacheSize > Constellations.FlushThresholdBytes)
+            {
+                Log.Warn($"{Name}: Cache size ({cacheSize} bytes) exceeds threshold ({Constellations.FlushThresholdBytes} bytes). Force flushing.");
+            }
+            
             await FlushWriteQueue();
         }
         catch(Exception ex)
         {
             Log.Error($"{Name}: Exception during Tick({tickCount})", ex);
+        }
+    }
+
+    /// <summary>
+    /// Immediately flushes all pending writes to disk. Called during system shutdown.
+    /// </summary>
+    public static async Task ShutdownFlush()
+    {
+        try
+        {
+            Log.Info($"{Name}: ShutdownFlush() initiated.");
+            await FlushWriteQueue();
+            Log.Info($"{Name}: ShutdownFlush() completed successfully.");
+        }
+        catch (Exception ex)
+        {
+            Log.Error($"{Name}: Exception during ShutdownFlush()", ex);
         }
     }
 
@@ -230,13 +266,10 @@ public static class FileDaemon
             WriteQueue.Clear();
         }
 
-        foreach (var kvp in pendingWrites)
+        foreach (var (filePath, data) in pendingWrites)
         {
             try
             {
-                var filePath = kvp.Key;
-                var data = kvp.Value;
-
                 var directory = Path.GetDirectoryName(filePath);
 
                 if (!string.IsNullOrEmpty(directory) &&
@@ -253,12 +286,12 @@ public static class FileDaemon
             {
                 // Expected during shutdown
                 Log.Warn($"{Name}: FlushWriteQueue stopped due to shutdown.");
-                Log.Error($"{Name}: FlushWriteQueue failed for {kvp.Key}, with remaining " +
-                          $"{kvp.Value.Length} items.");
+                Log.Error($"{Name}: FlushWriteQueue failed for {filePath}, with remaining " +
+                          $"{data.Length} items.");
             }
             catch (Exception ex)
             {
-                Log.Error($"{Name}: FlushWriteQueue failed for {kvp.Key}; remaining: {kvp.Value.Length}", ex);
+                Log.Error($"{Name}: FlushWriteQueue failed for {filePath}; remaining: {data.Length}", ex);
             }
         }
     }

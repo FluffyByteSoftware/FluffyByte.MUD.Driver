@@ -1,5 +1,4 @@
 <Solution>
   <Project Path="FluffyByte.MUD.Driver/FluffyByte.MUD.Driver.csproj" />
   <Project Path="FluffyByte.MUD.Library/FluffyByte.MUD.Library.csproj" Id="89cc93e6-5167-4550-811c-d0c53abee005" />
-  <Project Path="FluffyByte.MUD.Test/FluffyByte.MUD.Test.csproj" Id="0784652f-6f32-4c09-9951-85ce718e1c12" />
 </Solution>
