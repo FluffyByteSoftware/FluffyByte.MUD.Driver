@@ -10,7 +10,7 @@ using System.Net;
 using System.Net.Sockets;
 using FluffyByte.MUD.Driver.FluffyTools;
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
+namespace FluffyByte.MUD.Driver.Core.Daemons.Networking;
 
 /// <summary>
 /// Represents a TCP socket wrapper that provides controlled management of network sockets

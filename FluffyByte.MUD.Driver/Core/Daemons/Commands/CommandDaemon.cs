@@ -8,9 +8,10 @@
 
 using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
+using FluffyByte.MUD.Driver.Core.Daemons.Networking;
 using FluffyByte.MUD.Driver.FluffyTools;
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
+namespace FluffyByte.MUD.Driver.Core.Daemons.Commands;
 
 /// <summary>Provides a daemon for managing network-related commands in the system.
 /// Responsible for processing client commands, tracking its operational state, and managing uptime.</summary>
@@ -101,10 +102,8 @@ public static class CommandDaemon
         }
     }
 
-    /// <summary>
-    /// Provides a human-readable summary of the daemon's current state, including its name,
-    /// operational status, and the uptime duration since it last started.
-    /// </summary>
+    /// <summary>Provides a human-readable summary of the daemon's current state, including its name, operational status,
+    /// and the uptime duration since it last started.</summary>
     /// <remarks>This property combines the daemon's name, its current <see cref="DaemonStatus"/>,
     /// and the amount of time it has been running since the last start. Useful for logging, monitoring, or diagnostic
     /// purposes to track the operational state and performance of the daemon.</remarks>
@@ -131,9 +130,7 @@ public static class CommandDaemon
                 while (client.DequeueCommand() is { } command)
                 {
                     var commandText = Encoding.UTF8.GetString(command);
-
-                    Log.Info($"{client.Name}: {commandText}");
-
+                    
                     client.QueueWrite($"You said: {commandText}\r\n");
                     client.SetPrompt("> ");
                 }

@@ -1,5 +1,12 @@
 ﻿DateTime Notes:
 Always prefer to use times in Utc so there's no need to worry about DST.
 
-NetworkDaemon - The network daemon controls the switchboard, routes messages, and manages connections.
-Switchboard - The switchboard is the interface that the network daemon uses to send and receive messages to clients.
+NetworkDaemon - The network daemon controls the network and handles all incoming connections.
+Switchboard - The switchboard handles tracking all connections, and routing information to those connections, as well as
+    ticking them at 750 ms for input and 1.5 seconds for outputs.
+ 
+ 
+ psql
+ 
+ driver / pd6zAaym3FH6Ej
+ 

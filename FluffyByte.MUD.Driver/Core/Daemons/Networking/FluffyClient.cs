@@ -10,9 +10,10 @@ using System.Collections.Concurrent;
 using System.Net;
 using System.Net.Sockets;
 using System.Text;
+using System.Text.RegularExpressions;
 using FluffyByte.MUD.Driver.FluffyTools;
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
+namespace FluffyByte.MUD.Driver.Core.Daemons.Networking;
 
 /// <summary>Represents a network client in the FluffyByte MUD system.</summary>
 /// <remarks>The <see cref="FluffyClient"/> class provides methods and properties to manage a network client
@@ -218,18 +219,18 @@ public sealed class FluffyClient : IDisposable
 
         try
         {
-            // Flush all pending output to the client
+            var dataSent = false;
+
             while (_writerQ.TryDequeue(out var buffer))
             {
-                Log.Info($"_writerQ: {Encoding.UTF8.GetString(buffer)}");
                 await SendBytesAsync(buffer);
+                dataSent = true;
             }
 
-            // Queue the prompt for next sending
-            if (!string.IsNullOrEmpty(_pendingPrompt))
+            if (dataSent && !string.IsNullOrEmpty(_pendingPrompt))
             {
-                QueueWrite(_pendingPrompt);
-                _pendingPrompt = ""; // Clear it so it only sends once
+                // Send the prompt directly (don't queue)
+                await SendBytesAsync(Encoding.UTF8.GetBytes(_pendingPrompt));
             }
         }
         catch (SocketException)
@@ -261,7 +262,7 @@ public sealed class FluffyClient : IDisposable
 
     /// <summary>Enqueues a byte array into the client's writer queue for asynchronous sending.</summary>
     /// <param name="buffer">The byte array to be enqueued. Must not be empty.</param>
-    public void QueueWrite(byte[] buffer)
+    private void QueueWrite(byte[] buffer)
     {
         if (buffer.Length == 0)
         {
@@ -349,6 +350,9 @@ public sealed class FluffyClient : IDisposable
             lock (_inputLock)
             {
                 _inputBuffer.AddRange(buffer[..bytesRead]);
+                
+                // Strip telnet negotiation and ANSI escape sequences early
+                SanitizeInputBuffer();
 
                 if (_inputBuffer.Count > MAX_LINE_LENGTH)
                 {
@@ -376,15 +380,110 @@ public sealed class FluffyClient : IDisposable
             RequestDisconnect();
         }
     }
-    
+
+    /// <summary>
+    /// Removes telnet negotiation sequences (IAC) and ANSI escape sequences from the input buffer.
+    /// This prevents control characters from corrupting commands, especially during an initial Putty connection.
+    /// </summary>
+    /// <remarks>
+    /// Telnet negotiation (IAC - 0xFF) sequences are 2-3 bytes and should never appear in user commands.
+    /// ANSI escape sequences start with ESC (0x1B) followed by '[' and control parameters.
+    /// Common sequences to strip: cursor movement, colors, styles, and terminal negotiation.
+    /// </remarks>
+    private void SanitizeInputBuffer()
+    {
+        if (_inputBuffer.Count == 0)
+            return;
+
+        var cleanBytes = new List<byte>(_inputBuffer.Count);
+
+        for (var i = 0; i < _inputBuffer.Count; i++)
+        {
+            var b = _inputBuffer[i];
+
+            // 0xFF is IAC (Interpret As Command)
+            if (b == 0xFF)
+            {
+                // Ensure we have at least one byte after IAC to check
+                if (i + 1 >= _inputBuffer.Count)
+                {
+                    // We hit an IAC at the very end of the buffer. 
+                    // We'll skip it to be safe, or you could break to wait for more data.
+                    continue; 
+                }
+
+                var cmd = _inputBuffer[i + 1];
+
+                switch (cmd)
+                {
+                    case 251: // WILL
+                    case 252: // WONT
+                    case 253: // DO
+                    case 254: // DON'T
+                        // These are 3-byte sequences: IAC [CMD] [OPT]
+                        // We need to skip the current IAC (i), the CMD (i+1), and the OPT (i+2)
+                        if (i + 2 < _inputBuffer.Count)
+                        {
+                            i += 2; 
+                            continue; // Continue the FOR loop
+                        }
+                        break;
+
+                    case 250: // SB (Subnegotiation Begin)
+                        // Format: IAC SB ... IAC SE
+                        // Look ahead for IAC SE (255, 240)
+                        var foundEnd = false;
+                        for (var j = i + 2; j < _inputBuffer.Count; j++)
+                        {
+                            // Check for IAC followed by SE
+                            if (_inputBuffer[j] == 0xFF && 
+                                j + 1 < _inputBuffer.Count && 
+                                _inputBuffer[j + 1] == 240) // 240 is SE (Subnegotiation End)
+                            {
+                                i = j + 1; // Advance the main loop to the SE byte
+                                foundEnd = true;
+                                break;
+                            }
+                        }
+                        
+                        if (foundEnd)
+                        {
+                            continue; // Continue the FOR loop
+                        }
+                        break;
+
+                    default:
+                        // Handle generic 2-byte commands (IAC NOP, IAC AYT, etc.)
+                        // We skip the current IAC (i) and the command byte (i+1)
+                        i++;
+                        continue; // Continue the FOR loop
+                }
+            }
+
+            // If it wasn't a Telnet command, keep the byte
+            cleanBytes.Add(b);
+        }
+
+        // Convert cleaned bytes to string and strip ANSI
+        var text = Encoding.UTF8.GetString(cleanBytes.ToArray());
+        
+        // Regex for ANSI escape codes
+        const string ansiPattern = @"\x1B\[[^@-~]*[@-~]";
+        var cleanText = Regex.Replace(text, ansiPattern, string.Empty);
+
+        _inputBuffer.Clear();
+        _inputBuffer.AddRange(Encoding.UTF8.GetBytes(cleanText));
+    }
+
+
     private void ProcessCompleteLines()
     {
         while (true)
         {
-            int lineEndIndex = -1;
-            int terminatorLength = 0;
+            var lineEndIndex = -1;
+            var terminatorLength = 0;
 
-            for (int i = 0; i < _inputBuffer.Count; i++)
+            for (var i = 0; i < _inputBuffer.Count; i++)
             {
                 if (_inputBuffer[i] == '\r')
                 {
@@ -436,6 +535,7 @@ public sealed class FluffyClient : IDisposable
             return command;
         }
     }
+    
     #endregion Input Output
 }
 /*

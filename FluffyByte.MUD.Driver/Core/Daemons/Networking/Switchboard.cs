@@ -10,7 +10,7 @@ using System.Collections.Concurrent;
 using System.Net.Sockets;
 using FluffyByte.MUD.Driver.FluffyTools;
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
+namespace FluffyByte.MUD.Driver.Core.Daemons.Networking;
 
 /// <summary>The Switchboard class is responsible for managing a collection of connected clients within
 /// the networking subsystem. It maintains a mapping of unique client identifiers (GUIDs) to their respective

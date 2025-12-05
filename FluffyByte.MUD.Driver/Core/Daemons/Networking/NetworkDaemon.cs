@@ -8,7 +8,7 @@
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
 
-namespace FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
+namespace FluffyByte.MUD.Driver.Core.Daemons.Networking;
 
 /// <summary>Networkd handles all network-related operations, through various subroutines and helpers.</summary>
 public static class NetworkDaemon

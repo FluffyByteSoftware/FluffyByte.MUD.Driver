@@ -8,7 +8,8 @@
 using System.Text;
 using FluffyByte.MUD.Driver.Core.Types.Daemons;
 using FluffyByte.MUD.Driver.FluffyTools;
-using FluffyByte.MUD.Driver.Core.Daemons.NetworkD;
+using FluffyByte.MUD.Driver.Core.Daemons.Networking;
+using FluffyByte.MUD.Driver.Core.Daemons.Commands;
 
 namespace FluffyByte.MUD.Driver.Core.Daemons;
 
